@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>UI Preview</title>
+    <style>
+        /* 이전 답변에서 드린 CSS 내용 */
+        #zd-helper-panel {
+            position: fixed; right: 20px; top: 15%;
+            width: 250px; height: 300px; /* 미리보기를 위해 가로세로 고정 */
+            background: #fff; border: 1px solid #d8dcde;
+            display: flex; flex-direction: column; padding: 1px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        #zd-helper-panel * { margin: 1px; padding: 2px; font-size: 11px; }
+        .header { display: flex; justify-content: space-between; background: #f8f9f9; border-bottom: 1px solid #d8dcde; }
+        .action-btn { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid #32a1ce; color: #32a1ce; cursor: pointer; }
+        .action-btn:hover { background: #32a1ce; color: white; }
+    </style>
+</head>
+<body>
+    <div id="zd-helper-panel">
+        <div class="header">
+            <span>00:00</span>
+            <span>👻 📌</span>
+        </div>
+        <div style="flex:1; overflow-y:auto;">
+            <p style="color:#999">[Step 1: 사유 확인]</p>
+            <button class="action-btn">사유 언급 X (매장명 포함 멘트 복사)</button>
+            <button class="action-btn">사유 언급 O (확인 멘트 복사)</button>
+        </div>
+        <div style="border-top:1px solid #eee; font-size:10px;">EOC: <span style="color:red">치킨나라</span></div>
+    </div>
+</body>
+</html>

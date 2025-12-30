@@ -1,0 +1,25 @@
+#zd-helper-panel {
+  position: fixed; right: 0; top: 15%;
+  width: 16.6vw; height: 35vh;
+  background: white; border: 1px solid #ccc;
+  z-index: 999999; display: flex; flex-direction: column;
+  box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+  font-family: sans-serif;
+}
+
+/* 고밀도 1px 규칙 */
+#zd-helper-panel * { margin: 1px; padding: 1px; font-size: 11px; box-sizing: border-box; }
+
+.header { display: flex; justify-content: space-between; background: #eee; height: 22px; padding: 2px !important; }
+#log-container { flex: 1; overflow-y: auto; background: #f9f9f9; border-bottom: 1px solid #eee; display: flex; flex-direction: column; }
+.log-item { border-left: 2px solid #32a1ce; padding-left: 3px !important; margin-bottom: 2px !important; background: white; }
+.log-time { color: #999; font-size: 9px; }
+.log-label { color: #32a1ce; font-weight: bold; }
+
+#btn-container { background: #fff; padding: 2px !important; display: flex; flex-direction: column; gap: 2px; }
+.action-btn { border: 1px solid #32a1ce; background: white; color: #32a1ce; text-align: left; cursor: pointer; min-height: 20px; }
+.action-btn:hover { background: #32a1ce; color: white; }
+
+.footer { font-size: 9px; border-top: 1px solid #eee; color: #666; padding: 2px !important; }
+.stealth { display: none !important; }
+.hover-mode:not(:hover) { width: 4px !important; opacity: 0.3; overflow: hidden; }

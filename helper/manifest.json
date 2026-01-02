@@ -1,14 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Zendesk Stealth Helper",
-  "version": "1.0",
-  "description": "젠데스크 반복 노동 단축 및 은신 툴",
+  "name": "ZD-EOC Helper Pro",
+  "version": "1.3",
   "permissions": ["storage", "clipboardWrite"],
-  "content_scripts": [
-    {
-      "matches": ["https://*.zendesk.com/*"],
-      "js": ["content.js"],
-      "css": ["style.css"]
-    }
-  ]
+  "content_scripts": [{
+    "matches": ["https://*.zendesk.com/*", "https://eats-admin-portal.coupang.net/*"],
+    "js": ["content.js"], "css": ["style.css"]
+  }]
 }

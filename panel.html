@@ -1,0 +1,26 @@
+<div id="zd-helper-panel" class="hover-only">
+  <div class="header">
+    <span id="global-timer">00:00</span>
+    <div class="controls">
+      <button class="icon-btn" title="고정/해제">📌</button>
+      <button class="icon-btn" title="은신(Alt+S)" onclick="toggleStealth()">👻</button>
+    </div>
+  </div>
+
+  <div class="content-body">
+    <div class="step-group">
+      <div class="label">Step 1: 사유 확인</div>
+      <button class="action-btn" onclick="nextStep('reasonX')">사유 언급 X</button>
+      <button class="action-btn" onclick="nextStep('reasonO')">사유 언급 O</button>
+    </div>
+    
+    <div class="step-group">
+      <div class="label">Step 2: 대기 안내</div>
+      <button class="action-btn copy-only">대기 요청 멘트 복사</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    EOC: <span class="var-tag">{{매장명}}</span>
+  </div>
+</div>

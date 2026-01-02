@@ -1,0 +1,12 @@
+#zd-helper-panel { position: fixed; right: 0; top: 15%; width: 16.6vw; height: 40vh; background: white; border: 1px solid #ccc; z-index: 999999; display: flex; flex-direction: column; font-family: sans-serif; box-shadow: -2px 0 5px rgba(0,0,0,0.1); }
+#zd-helper-panel * { margin: 1px; padding: 1px; font-size: 11px; box-sizing: border-box; }
+.header { display: flex; justify-content: space-between; align-items: center; background: #eee; height: 26px; border-bottom: 1px solid #ccc; }
+#info-header { flex: 1; text-align: center; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-view { position: absolute; top: 26px; left: 0; width: 100%; height: calc(100% - 52px); background: white; overflow-y: auto; z-index: 100; border: 1px solid #32a1ce; }
+.stealth { display: none !important; }
+#log-container { flex: 1; overflow-y: auto; background: #f9f9f9; border-bottom: 1px solid #eee; }
+.action-btn { border: 1px solid #32a1ce; background: white; color: #32a1ce; text-align: left; cursor: pointer; min-height: 22px; font-weight: bold; }
+.action-btn:hover { background: #32a1ce; color: white; }
+.footer { display: flex; height: 26px; border-top: 1px solid #eee; }
+.footer button { flex: 1; cursor: pointer; background: #f8f8f8; border: 1px solid #ddd; font-size: 9px; }
+.hover-mode:not(:hover) { width: 4px !important; opacity: 0.3; overflow: hidden; }

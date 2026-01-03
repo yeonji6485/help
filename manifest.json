@@ -1,14 +1,19 @@
 {
   "manifest_version": 3,
   "name": "ZD-EOC Helper Pro",
-  "version": "1.6",
+  "version": "2.0.0",
   "permissions": ["storage", "clipboardWrite"],
   "content_scripts": [{
     "matches": [
       "https://*.zendesk.com/*", 
-      "https://eats-operation-center.coupang.net/*"
+      "https://eats-operation-center.coupang.net/*",
+      "https://www.google.com/*"
     ],
     "js": ["content.js"], 
     "css": ["style.css"]
+  }],
+  "web_accessible_resources": [{
+    "resources": ["data_generated.json"],
+    "matches": ["<all_urls>"]
   }]
 }

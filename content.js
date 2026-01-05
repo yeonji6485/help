@@ -116,6 +116,23 @@ if (isEOC) {
       
       tags["_ETA1_경과여부"] = isTimePassed(etaTime) ? "경과" : "미경과";
       
+      // 주문 메뉴 수집
+      const menuList = [];
+      const orderMenuCard = Array.from(document.querySelectorAll('.order-detail-card')).find(card => {
+        const header = card.querySelector('.el-card__header .clearfix span');
+        return header && header.textContent.trim() === '주문 메뉴';
+      });
+      if (orderMenuCard) {
+        const menuRows = orderMenuCard.querySelectorAll('.el-table__body tbody tr');
+        menuRows.forEach(row => {
+          const cells = row.querySelectorAll('td');
+          if (cells.length >= 3) {
+            menuList.push(cells[2].textContent.trim());
+          }
+        });
+      }
+      tags["주문메뉴"] = menuList;
+      
       // 안분가 계산
       const salesPrice = tags["판매금액"] || 0;
       const productDiscount = tags["상품할인"] || 0;
@@ -176,6 +193,8 @@ if (isZD) {
         </div>
       </div>
       <div id="eoc-detail-view" class="tab-view stealth"></div>
+      <div id="eoc-info-view" class="tab-view stealth"></div>
+      <div id="sms-view" class="tab-view stealth"></div>
       <div id="calculator-view" class="tab-view stealth">
         <div style="padding: 8px; font-size: 10px;">
           <h4 style="margin-bottom: 8px;">🧮 안분 계산기</h4>
@@ -200,24 +219,39 @@ if (isZD) {
         </div>
       </div>
       <div id="settings-view" class="tab-view stealth">
-        <label style="font-size:10px;">상담사 이름</label>
-        <input id="set-name" type="text" style="width:100%; font-size:10px;">
-        
-        <label style="font-size:10px; margin-top:5px; display:block;">퀵 버튼 (JSON 배열)</label>
-        <div style="font-size:8px; color:#666; margin-bottom:2px;">
-          예시: [{"label":"인사","text":"안녕하세요 {{상담사명}}입니다"},{"label":"끝인사","text":"좋은 하루 되세요!"}]
+        <div style="padding:4px;overflow-y:auto;max-height:calc(45vh - 52px);">
+          <label style="font-size:10px;">상담사 이름</label>
+          <input id="set-name" type="text" style="width:100%; font-size:10px; margin-bottom:8px;" placeholder="상담사">
+          
+          <hr style="margin:8px 0;border:none;border-top:1px solid #ddd;">
+          
+          <label style="font-size:10px;">퀵 버튼 (JSON 배열)</label>
+          <textarea id="quick-buttons" style="width:100%; height:60px; font-size:9px; font-family:monospace; margin-bottom:4px;" placeholder='[{"label":"인사","text":"안녕하세요 {{상담사명}}입니다"},{"label":"끝인사","text":"좋은 하루 되세요!"}]'></textarea>
+          <button id="save-quick-settings" style="width:100%; margin-bottom:8px; background:#32a1ce; color:white; font-size:10px; padding:4px; border:none; border-radius:2px; cursor:pointer;">퀵 버튼 저장</button>
+          
+          <hr style="margin:8px 0;border:none;border-top:1px solid #ddd;">
+          
+          <label style="font-size:10px;">SMS 템플릿 - 고객</label>
+          <textarea id="sms-customer" style="width:100%; height:50px; font-size:9px; font-family:monospace; margin-bottom:4px;" placeholder='[{"label":"배달지연","text":"고객님, 주문하신 음식이 배달 지연되고 있습니다. 죄송합니다."},{"label":"조리지연","text":"고객님, 매장에서 조리가 지연되고 있습니다. 죄송합니다."}]'></textarea>
+          
+          <label style="font-size:10px;">SMS 템플릿 - 배달파트너</label>
+          <textarea id="sms-partner" style="width:100%; height:50px; font-size:9px; font-family:monospace; margin-bottom:4px;" placeholder='[{"label":"픽업요청","text":"픽업 부탁드립니다."},{"label":"정정배달","text":"정정배달 요청합니다."}]'></textarea>
+          
+          <label style="font-size:10px;">SMS 템플릿 - 스토어</label>
+          <textarea id="sms-store" style="width:100%; height:50px; font-size:9px; font-family:monospace; margin-bottom:4px;" placeholder='[{"label":"조리독촉","text":"조리 진행 부탁드립니다."},{"label":"재조리","text":"재조리 요청합니다."}]'></textarea>
+          
+          <button id="save-sms-settings" style="width:100%; margin-top:4px; background:#32a1ce; color:white; font-size:10px; padding:4px; border:none; border-radius:2px; cursor:pointer;">SMS 설정 저장</button>
         </div>
-        <textarea id="quick-buttons" style="width:100%; height:60px; font-size:9px; font-family:monospace;"></textarea>
-        
-        <button id="save-settings" style="width:100%; margin-top:3px; background:#32a1ce; color:white; font-size:10px;">저장</button>
       </div>
       <div id="btn-container"></div>
       <div id="anbunga-container"></div>
       <div id="quick-btn-container"></div>
       <div class="footer">
-        <button id="toggle-detail">EOC 정보</button>
+        <button id="toggle-detail">EOC 원문</button>
+        <button id="toggle-eoc-info">EOC 정보</button>
+        <button id="toggle-sms">SMS</button>
         <button id="toggle-calculator">🧮</button>
-        <button id="toggle-settings">⚙️ 설정</button>
+        <button id="toggle-settings">⚙️</button>
       </div>
       <div id="resize-handle"></div>
     `;
@@ -534,13 +568,41 @@ if (isZD) {
 
     document.getElementById('toggle-detail').onclick = () => { 
       document.getElementById('settings-view').classList.add('stealth');
-      document.getElementById('calculator-view').classList.add('stealth'); 
+      document.getElementById('calculator-view').classList.add('stealth');
+      document.getElementById('eoc-info-view').classList.add('stealth');
+      document.getElementById('sms-view').classList.add('stealth');
       document.getElementById('eoc-detail-view').classList.toggle('stealth'); 
+    };
+
+    document.getElementById('toggle-eoc-info').onclick = () => {
+      document.getElementById('settings-view').classList.add('stealth');
+      document.getElementById('calculator-view').classList.add('stealth');
+      document.getElementById('eoc-detail-view').classList.add('stealth');
+      document.getElementById('sms-view').classList.add('stealth');
+      const view = document.getElementById('eoc-info-view');
+      view.classList.toggle('stealth');
+      if (!view.classList.contains('stealth')) {
+        showEOCInfo();
+      }
+    };
+
+    document.getElementById('toggle-sms').onclick = () => {
+      document.getElementById('settings-view').classList.add('stealth');
+      document.getElementById('calculator-view').classList.add('stealth');
+      document.getElementById('eoc-detail-view').classList.add('stealth');
+      document.getElementById('eoc-info-view').classList.add('stealth');
+      const view = document.getElementById('sms-view');
+      view.classList.toggle('stealth');
+      if (!view.classList.contains('stealth')) {
+        showSMS();
+      }
     };
 
     document.getElementById('toggle-calculator').onclick = () => {
       document.getElementById('eoc-detail-view').classList.add('stealth');
       document.getElementById('settings-view').classList.add('stealth');
+      document.getElementById('eoc-info-view').classList.add('stealth');
+      document.getElementById('sms-view').classList.add('stealth');
       const calcView = document.getElementById('calculator-view');
       calcView.classList.toggle('stealth');
       
@@ -562,7 +624,9 @@ if (isZD) {
 
     document.getElementById('toggle-settings').onclick = () => { 
       document.getElementById('eoc-detail-view').classList.add('stealth');
-      document.getElementById('calculator-view').classList.add('stealth'); 
+      document.getElementById('calculator-view').classList.add('stealth');
+      document.getElementById('eoc-info-view').classList.add('stealth');
+      document.getElementById('sms-view').classList.add('stealth');
       document.getElementById('settings-view').classList.toggle('stealth'); 
     };
 
@@ -595,16 +659,36 @@ if (isZD) {
       navigator.clipboard.writeText(result.toString());
     };
 
-    document.getElementById('save-settings').onclick = () => { 
+    document.getElementById('save-quick-settings').onclick = () => { 
       userSettings.name = document.getElementById('set-name').value;
       try {
-        userSettings.quickButtons = JSON.parse(document.getElementById('quick-buttons').value);
+        const quickValue = document.getElementById('quick-buttons').value.trim();
+        userSettings.quickButtons = quickValue ? JSON.parse(quickValue) : [];
         chrome.storage.local.set({userSettings}); 
-        alert("저장됨"); 
+        alert("퀵 버튼 저장됨"); 
         renderQuickButtons();
         refreshUI();
       } catch (e) {
         alert("퀵 버튼 JSON 형식 오류:\n" + e.message);
+      }
+    };
+
+    document.getElementById('save-sms-settings').onclick = () => {
+      try {
+        const customerValue = document.getElementById('sms-customer').value.trim();
+        const partnerValue = document.getElementById('sms-partner').value.trim();
+        const storeValue = document.getElementById('sms-store').value.trim();
+        
+        userSettings.smsTemplates = {
+          "고객": customerValue ? JSON.parse(customerValue) : [],
+          "배달파트너": partnerValue ? JSON.parse(partnerValue) : [],
+          "스토어": storeValue ? JSON.parse(storeValue) : []
+        };
+        
+        chrome.storage.local.set({userSettings}); 
+        alert("SMS 설정 저장됨"); 
+      } catch (e) {
+        alert("SMS 템플릿 JSON 형식 오류:\n" + e.message);
       }
     };
 
@@ -633,4 +717,447 @@ if (isZD) {
 
 function getTid() { 
   return location.pathname.match(/tickets\/(\d+)/)?.[1] || 'test-env'; 
+}
+
+// ============================================================================
+// [추가 기능] EOC 정보 파싱 및 표시
+// ============================================================================
+
+// 헬퍼 함수
+function findCardByHeader(doc, headerText) {
+  const cards = doc.querySelectorAll('.order-detail-card');
+  for (const card of cards) {
+    const header = card.querySelector('.el-card__header .clearfix span');
+    if (header && header.textContent.trim() === headerText) {
+      return card;
+    }
+  }
+  return null;
+}
+
+// EOC 데이터 파싱 (EOC 페이지에서 직접 파싱)
+function parseOrderFromHTML() {
+  const doc = document;
+  const result = {
+    주문정보: {},
+    주문메뉴: [],
+    결제: {},
+    배달지: {},
+    배달작업: {},
+    스토어: {},
+    쿠리어: {},
+    이슈내용: {},
+    보상내역: [],
+    이력: []
+  };
+
+  // 1. 주문정보
+  const orderInfoCard = findCardByHeader(doc, '주문정보');
+  if (orderInfoCard) {
+    const rows = orderInfoCard.querySelectorAll('.order-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const valueCell = row.querySelector('td:last-child');
+      
+      if (label === '결제 금액' && valueCell) {
+        const salesPriceText = valueCell.textContent;
+        const match = salesPriceText.match(/판매가격:\s*₩([\d,]+)/);
+        if (match) {
+          result.주문정보.판매가격 = parseInt(match[1].replace(/,/g, ''));
+        }
+      } else if (label && label.startsWith('ETA') && valueCell) {
+        const timeDiv = valueCell.querySelector('div');
+        if (timeDiv) {
+          const timeText = timeDiv.textContent.trim();
+          const timeMatch = timeText.match(/최초시간\s+(\d{2}):(\d{2})/);
+          if (timeMatch) {
+            const hours = timeMatch[1];
+            const minutes = timeMatch[2];
+            result.주문정보[label] = `${hours}:${minutes}`;
+            result.주문정보[`${label}_시각`] = `${hours}시 ${minutes}분`;
+          }
+        }
+      } else if (label && valueCell) {
+        result.주문정보[label] = valueCell.textContent.trim();
+      }
+    });
+  }
+
+  // 2. 주문 메뉴
+  const orderMenuCard = findCardByHeader(doc, '주문 메뉴');
+  if (orderMenuCard) {
+    const menuRows = orderMenuCard.querySelectorAll('.el-table__body tbody tr');
+    menuRows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 3) {
+        const details = cells[2].textContent.trim();
+        result.주문메뉴.push({ details });
+      }
+    });
+  }
+
+  // 3. 결제
+  const paymentCard = findCardByHeader(doc, '결제');
+  if (paymentCard) {
+    const rows = paymentCard.querySelectorAll('.order-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const value = row.querySelector('td:last-child')?.textContent.trim();
+      if (label && value) {
+        result.결제[label] = value;
+      }
+    });
+
+    // 주문결제내역
+    result.결제.주문결제내역 = [];
+    const paymentRows = paymentCard.querySelectorAll('.el-table__body tbody tr');
+    let foundCouponTable = false;
+    
+    paymentRows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (!foundCouponTable && cells.length >= 4) {
+        const 조치종류 = cells[1].textContent.trim();
+        const 생성시간 = cells[2].textContent.trim();
+        const 성공 = !!cells[3].querySelector('.el-icon-check');
+        result.결제.주문결제내역.push({ 조치종류, 생성시간, 성공 });
+      }
+    });
+
+    // 쿠폰 (상품할인 + 디쉬할인만)
+    const couponHeader = Array.from(paymentCard.querySelectorAll('h4')).find(h => h.textContent.includes('쿠폰'));
+    if (couponHeader) {
+      const couponTable = couponHeader.nextElementSibling;
+      if (couponTable && couponTable.classList.contains('el-table')) {
+        result.결제.쿠폰 = [];
+        let 상품할인합 = 0;
+        
+        const couponRows = couponTable.querySelectorAll('.el-table__body tbody tr');
+        couponRows.forEach(row => {
+          const cells = row.querySelectorAll('td');
+          if (cells.length >= 3) {
+            const 할인유형 = cells[1].textContent.trim();
+            const 할인가격문자열 = cells[2].textContent.trim();
+            const 할인가격 = parseInt(할인가격문자열.replace(/[^\d]/g, ''));
+            
+            if (할인유형 === '상품 할인' || 할인유형 === '디쉬 할인') {
+              result.결제.쿠폰.push({ 할인유형, 할인가격: 할인가격문자열 });
+              상품할인합 += 할인가격;
+            }
+          }
+        });
+        
+        result.결제.상품할인합계 = 상품할인합;
+      }
+    }
+  }
+
+  // 4. 배달지
+  const deliveryAddressCard = findCardByHeader(doc, '배달지');
+  if (deliveryAddressCard) {
+    const rows = deliveryAddressCard.querySelectorAll('.order-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const value = row.querySelector('td:last-child')?.textContent.trim();
+      if (label && value) {
+        result.배달지[label] = value;
+      }
+    });
+  }
+
+  // 5. 배달 작업
+  const deliveryTaskCard = findCardByHeader(doc, '배달 작업');
+  if (deliveryTaskCard) {
+    const rows = deliveryTaskCard.querySelectorAll('.order-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const value = row.querySelector('td:last-child')?.textContent.trim();
+      if (label && value) {
+        result.배달작업[label] = value;
+      }
+    });
+  }
+
+  // 6. 스토어
+  const storeCard = findCardByHeader(doc, '스토어');
+  if (storeCard) {
+    const rows = storeCard.querySelectorAll('.order-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const value = row.querySelector('td:last-child')?.textContent.trim();
+      if (label && value) {
+        result.스토어[label] = value;
+      }
+    });
+  }
+
+  // 7. 쿠리어
+  const courierCard = findCardByHeader(doc, '쿠리어');
+  if (courierCard) {
+    const rows = courierCard.querySelectorAll('.order-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const value = row.querySelector('td:last-child');
+      if (label && value) {
+        if (label === '쿠리어 타입') {
+          const checkedRadio = value.querySelector('.el-radio.is-checked .el-radio__label');
+          result.쿠리어[label] = checkedRadio ? checkedRadio.textContent.trim() : '';
+        } else {
+          result.쿠리어[label] = value.textContent.trim();
+        }
+      }
+    });
+  }
+
+  // 8. 이슈 내용
+  const issueCard = findCardByHeader(doc, '이슈 내용');
+  if (issueCard) {
+    const rows = issueCard.querySelectorAll('.inquiry-detail-table tr');
+    rows.forEach(row => {
+      const label = row.querySelector('td:first-child')?.textContent.trim();
+      const value = row.querySelector('td:last-child')?.textContent.trim();
+      if (label && value) {
+        result.이슈내용[label] = value;
+      }
+    });
+  }
+
+  // 9. 보상내역
+  const compensationCard = findCardByHeader(doc, '보상내역');
+  if (compensationCard) {
+    const compRows = compensationCard.querySelectorAll('.el-table__body tbody tr');
+    compRows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 5) {
+        result.보상내역.push({
+          reason: cells[0].textContent.trim(),
+          amount: cells[1].textContent.trim(),
+          processor: cells[2].textContent.trim(),
+          processedAt: cells[3].textContent.trim(),
+          status: cells[4].textContent.trim()
+        });
+      }
+    });
+  }
+
+  // 10. 이력
+  const historyCard = findCardByHeader(doc, '이력');
+  if (historyCard) {
+    const historyRows = historyCard.querySelectorAll('.el-table__body tbody tr');
+    historyRows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 6) {
+        const action = cells[2].textContent.trim();
+        
+        result.이력.push({
+          taskId: cells[0].textContent.trim(),
+          status: cells[1].textContent.trim(),
+          action: action,
+          eta: cells[3].textContent.trim(),
+          courierId: cells[4].textContent.trim(),
+          createdInfo: cells[5].textContent.trim()
+        });
+        
+        // 배달 완료 시각 추출
+        if (action === '배달 완료') {
+          const createdInfo = cells[5].textContent.trim();
+          const timeMatch = createdInfo.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+          if (timeMatch) {
+            const [_, year, month, day, hours, minutes] = timeMatch;
+            result.배달완료시각 = `${hours}:${minutes}`;
+            result.배달완료시각_한글 = `${hours}시 ${minutes}분`;
+            result.배달완료일시 = `${year}-${month}-${day} ${hours}:${minutes}`;
+            
+            // ETA1과 시간 차이 계산
+            const eta1 = result.주문정보["ETA 1 (머천트 수락)"];
+            if (eta1) {
+              const [eta1Hours, eta1Minutes] = eta1.split(':').map(Number);
+              const [completeHours, completeMinutes] = [parseInt(hours), parseInt(minutes)];
+              
+              const eta1TotalMinutes = eta1Hours * 60 + eta1Minutes;
+              const completeTotalMinutes = completeHours * 60 + completeMinutes;
+              const diffMinutes = completeTotalMinutes - eta1TotalMinutes;
+              
+              result.배달지연시간 = diffMinutes;
+              
+              if (diffMinutes > 0) {
+                result.배달지연시간_한글 = `${diffMinutes}분 지연`;
+              } else if (diffMinutes < 0) {
+                result.배달지연시간_한글 = `${Math.abs(diffMinutes)}분 조기배달`;
+              } else {
+                result.배달지연시간_한글 = `정시 배달`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  return result;
+}
+
+// EOC 데이터 파싱 (Zendesk용 - chrome.storage에서 가져온 데이터 파싱)
+function parseOrderFromStorage(eocData) {
+  // chrome.storage에서 받은 데이터를 구조화
+  return {
+    주문정보: eocData,
+    주문메뉴: eocData['주문메뉴'] || [],
+    결제: { 상품할인합계: eocData["상품할인"] || 0 },
+    스토어: { 이름: eocData["이름"] || '', 전화번호: eocData["전화번호"] || '' },
+    쿠리어: { '쿠리어 타입': eocData["쿠리어 타입"] || '', '쿠리어 ID': eocData["쿠리어 ID"] || '', 전화번호: eocData["쿠리어 전화번호"] || '' }
+  };
+}
+
+
+// 기본 SMS 템플릿
+function getDefaultSMSTemplates() {
+  return {
+    "고객": [
+      { "label": "배달지연", "text": "고객님, 주문하신 음식이 배달 지연되고 있습니다. 죄송합니다." },
+      { "label": "조리지연", "text": "고객님, 매장에서 조리가 지연되고 있습니다. 죄송합니다." },
+      { "label": "[내용작성]", "text": "" },
+      { "label": "[내용작성]", "text": "" }
+    ],
+    "배달파트너": [
+      { "label": "픽업요청", "text": "픽업 부탁드립니다." },
+      { "label": "정정배달", "text": "정정배달 요청합니다." },
+      { "label": "[내용작성]", "text": "" },
+      { "label": "[내용작성]", "text": "" }
+    ],
+    "스토어": [
+      { "label": "조리독촉", "text": "조리 진행 부탁드립니다." },
+      { "label": "재조리", "text": "재조리 요청합니다." },
+      { "label": "[내용작성]", "text": "" },
+      { "label": "[내용작성]", "text": "" }
+    ]
+  };
+}
+
+// EOC 정보 탭 표시
+function showEOCInfo() {
+  const view = document.getElementById('eoc-info-view');
+  if (!view) return;
+
+  const tid = getTid();
+  const data = ticketStore[tid];
+  if (!data || !data.eoc) {
+    view.innerHTML = '<div style="padding:8px;color:#e53935;">EOC 데이터가 없습니다</div>';
+    return;
+  }
+
+  try {
+    const orderData = parseOrderFromStorage(data.eoc);
+    
+    // 주문 유형
+    let orderType = '한집배달';
+    if (data.eoc["주문 유형"] && data.eoc["주문 유형"].includes('세이브')) {
+      orderType = '무료배달';
+    }
+
+    // 결제시각 (ETA1이나 다른 시각 정보 활용)
+    let paymentTime = data.eoc["_ETA1_시각"] || '';
+
+    view.innerHTML = `
+      <div style="padding:2px;font-size:9px;">
+        <button id="btn-toggle-raw" style="width:100%;padding:2px;margin-bottom:2px;cursor:pointer;background:#f0f0f0;border:1px solid #ccc;">
+          EOC 원문 보기 ▼
+        </button>
+        <div id="raw-data-container" style="display:none;max-height:300px;overflow-y:auto;padding:4px;background:#fafafa;border:1px solid #ddd;font-size:8px;white-space:pre-wrap;"></div>
+        <div style="padding:2px;line-height:1.6;">
+          <div class="copyable-row" data-copy="${orderType}" style="padding:2px 0;cursor:pointer;">주문유형 | ${orderType}</div>
+          <div class="copyable-row" data-copy="${data.eoc['고유 주문 ID'] || ''}" style="padding:2px 0;cursor:pointer;">고유번호 | ${data.eoc['고유 주문 ID'] || '-'}</div>
+          <div class="copyable-row" data-copy="${data.eoc['이름'] || ''}" style="padding:2px 0;cursor:pointer;">매장명 | ${data.eoc['이름'] || '-'}</div>
+          <div class="copyable-row" data-copy="${data.eoc['전화번호'] || ''}" style="padding:2px 0;cursor:pointer;">전화번호 | ${data.eoc['전화번호'] || '-'}</div>
+          <div class="copyable-row" data-copy="${paymentTime}" style="padding:2px 0;cursor:pointer;">결제시각 | ${paymentTime}</div>
+          <div class="copyable-row" data-copy="${data.eoc['축약형 주문 ID'] || ''}" style="padding:2px 0;cursor:pointer;">축약번호 | ${data.eoc['축약형 주문 ID'] || '-'}</div>
+          <hr style="margin:2px 0;border:none;border-top:1px solid #ddd;">
+          <div style="font-weight:bold;margin:2px 0;">주문 메뉴</div>
+          ${(data.eoc['주문메뉴'] || []).map(menu => `<div class="copyable-row" data-copy="${menu}" style="padding:2px 0;cursor:pointer;">${menu}</div>`).join('') || '<div style="color:#999;">메뉴 정보 없음</div>'}
+          <hr style="margin:2px 0;border:none;border-top:1px solid #ddd;">
+          <div class="copyable-row" data-copy="${data.eoc['판매금액'] || '0'}" style="padding:2px 0;cursor:pointer;">판매가격 | ₩${(data.eoc['판매금액'] || 0).toLocaleString()}</div>
+          <div class="copyable-row" data-copy="${data.eoc['상품할인'] || '0'}" style="padding:2px 0;cursor:pointer;">상품할인 | ₩${(data.eoc['상품할인'] || 0).toLocaleString()}</div>
+          <hr style="margin:2px 0;border:none;border-top:1px solid #ddd;">
+          <div class="copyable-row" data-copy="${data.eoc['쿠리어 타입'] || ''}" style="padding:2px 0;cursor:pointer;">파트너유형 | ${data.eoc['쿠리어 타입'] || '-'}</div>
+          <div class="copyable-row" data-copy="${data.eoc['쿠리어 ID'] || ''}" style="padding:2px 0;cursor:pointer;">파트너ID | ${data.eoc['쿠리어 ID'] || '-'}</div>
+          <div class="copyable-row" data-copy="${data.eoc['쿠리어 전화번호'] || ''}" style="padding:2px 0;cursor:pointer;">파트너전화 | ${data.eoc['쿠리어 전화번호'] || '-'}</div>
+        </div>
+      </div>
+    `;
+
+    // 복사 기능
+    view.querySelectorAll('.copyable-row').forEach(row => {
+      row.onclick = function() {
+        const text = this.getAttribute('data-copy');
+        navigator.clipboard.writeText(text).then(() => {
+          this.style.background = '#e8f5e9';
+          setTimeout(() => { this.style.background = ''; }, 200);
+        });
+      };
+    });
+
+    // 원문 토글
+    const toggleBtn = view.querySelector('#btn-toggle-raw');
+    const rawContainer = view.querySelector('#raw-data-container');
+    
+    toggleBtn.onclick = function() {
+      if (rawContainer.style.display === 'none') {
+        // 원문 생성
+        rawContainer.textContent = JSON.stringify(data.eoc, null, 2);
+        rawContainer.style.display = 'block';
+        toggleBtn.textContent = 'EOC 원문 닫기 ▲';
+      } else {
+        rawContainer.style.display = 'none';
+        toggleBtn.textContent = 'EOC 원문 보기 ▼';
+      }
+    };
+
+  } catch (error) {
+    console.error('EOC Info error:', error);
+    view.innerHTML = '<div style="padding:8px;color:#e53935;">정보 로드 오류</div>';
+  }
+}
+
+// SMS 탭 표시
+function showSMS() {
+  const view = document.getElementById('sms-view');
+  if (!view) return;
+
+  const smsTemplates = userSettings.smsTemplates || getDefaultSMSTemplates();
+
+  const getGroupEmoji = (group) => {
+    const emojis = { '고객': '👤', '배달파트너': '🛵', '스토어': '🏪' };
+    return emojis[group] || '📝';
+  };
+
+  view.innerHTML = `
+    <div style="padding:4px;font-size:9px;">
+      <div style="text-align:center;font-weight:bold;padding:4px;background:#f5f5f5;border-bottom:1px solid #ddd;">SMS 발송</div>
+      
+      ${Object.entries(smsTemplates).map(([group, templates]) => `
+        <div style="margin:6px 0;border-bottom:1px solid #eee;padding-bottom:4px;">
+          <div style="font-weight:bold;padding:2px 0;font-size:10px;">${getGroupEmoji(group)} ${group}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;">
+            ${templates.map(template => `
+              <button class="btn-sms" data-text="${template.text}" style="padding:3px 6px;font-size:9px;background:#66bb6a;color:white;border:none;border-radius:2px;cursor:pointer;text-align:left;">
+                ${template.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  // SMS 버튼 이벤트
+  view.querySelectorAll('.btn-sms').forEach(btn => {
+    btn.onclick = function() {
+      const text = this.getAttribute('data-text');
+      if (text) {
+        navigator.clipboard.writeText(text).then(() => {
+          this.style.background = '#4caf50';
+          setTimeout(() => { this.style.background = '#66bb6a'; }, 200);
+        });
+      }
+    };
+  });
 }

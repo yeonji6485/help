@@ -9,69 +9,116 @@ if (isEOC) {
     const btn = e.target.closest('[data-testid="zendesk_order_ticket_async"]');
     if (btn) {
       const tags = {};
+      
+      // 기본 필드 수집
       document.querySelectorAll('tr').forEach(tr => {
         if (tr.cells.length >= 2) {
           const key = tr.cells[0].innerText.trim();
           const cell = tr.cells[1];
-          
-          // 결제 금액은 특수 처리
+          const val = cell.innerText.trim().split('\n')[0];
+          tags[key] = val;
+        }
+      });
+      
+      // 통합주소 생성 (도로명주소, 지명, 상세주소 순)
+      const addressParts = [
+        tags["도로명 주소"],
+        tags["지명"],
+        tags["상세 주소"]
+      ].filter(Boolean);
+      tags["통합주소"] = addressParts.join(', ');
+      
+      // 판매금액 추출 (결제 금액 섹션의 "판매가격:")
+      document.querySelectorAll('tr').forEach(tr => {
+        if (tr.cells.length >= 2) {
+          const key = tr.cells[0].innerText.trim();
           if (key === "결제 금액") {
-            const dangerSpan = cell.querySelector('.text-danger');
-            const listItems = Array.from(cell.querySelectorAll('li')).map(li => li.innerText.trim());
-            
-            if (dangerSpan) {
-              tags["결제 금액"] = dangerSpan.innerText.trim();
-            }
-            
-            // 판매가격, 배달비 추출
-            listItems.forEach(item => {
-              if (item.startsWith("판매가격:")) {
-                tags["판매가격"] = item.replace("판매가격:", "").trim();
-              } else if (item.startsWith("배달비:")) {
-                tags["배달비"] = item.replace("배달비:", "").trim();
-              }
-            });
-            
-            // 혜택 영역에서 상품 할인 합산
-            let productDiscountTotal = 0;
-            const benefitDivs = cell.querySelectorAll('div');
-            benefitDivs.forEach(div => {
-              const text = div.innerText.trim();
-              // "상품 할인:", "디쉬 할인:" 등 "할인:"으로 끝나는 항목 (배달비 할인 제외)
-              if ((text.includes("상품 할인:") || text.includes("디쉬 할인:")) && !text.includes("배달비")) {
-                const match = text.match(/-?₩?([\d,]+)/);
+            const cell = tr.cells[1];
+            const listItems = Array.from(cell.querySelectorAll('li'));
+            listItems.forEach(li => {
+              const text = li.innerText.trim();
+              if (text.startsWith("판매가격:")) {
+                const match = text.match(/₩([\d,]+)/);
                 if (match) {
-                  const amount = parseInt(match[1].replace(/,/g, ''));
-                  productDiscountTotal += amount;
+                  tags["판매금액"] = parseInt(match[1].replace(/,/g, ''));
                 }
               }
-              
-              // 쿠폰도 추출
-              if (text.includes("쿠폰:")) {
-                tags["쿠폰"] = text.replace("쿠폰:", "").replace("혜택:", "").trim();
-              }
             });
-            
-            if (productDiscountTotal > 0) {
-              tags["상품 할인"] = `₩${productDiscountTotal.toLocaleString()}`;
-            }
-          } else {
-            // 일반 필드는 첫 줄만
-            const val = cell.innerText.trim().split('\n')[0];
-            tags[key] = val;
           }
         }
       });
       
-      // 파생값 생성: ETA1 시간만 추출 및 경과 여부 계산
+      // 상품 할인 + 디쉬 할인 합산 (쿠폰 테이블에서)
+      let totalDiscount = 0;
+      const couponTables = document.querySelectorAll('.el-table');
+      couponTables.forEach(table => {
+        const headerText = table.closest('.el-card__body')?.previousElementSibling?.textContent || '';
+        if (headerText.includes('쿠폰')) {
+          const rows = table.querySelectorAll('.el-table__body tr');
+          rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 3) {
+              const typeText = cells[1].textContent.trim();
+              if (typeText === '상품 할인' || typeText === '디쉬 할인') {
+                const amountText = cells[2].textContent.trim();
+                const match = amountText.match(/₩([\d,]+)/);
+                if (match) {
+                  totalDiscount += parseInt(match[1].replace(/,/g, ''));
+                }
+              }
+            }
+          });
+        }
+      });
+      tags["상품할인"] = totalDiscount;
+      
+      // 배달완료 시각 추출 (이력 테이블에서)
+      const historyTables = document.querySelectorAll('.el-table');
+      historyTables.forEach(table => {
+        const rows = table.querySelectorAll('.el-table__body tr');
+        rows.forEach(row => {
+          const cells = row.querySelectorAll('td');
+          if (cells.length >= 6) {
+            const actionText = cells[2].textContent.trim(); // "조치" 열
+            if (actionText === '배달 완료') {
+              const createdText = cells[5].textContent.trim(); // "생성(ID)" 열
+              const timeMatch = createdText.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+              if (timeMatch) {
+                const [, , , , hour, minute] = timeMatch;
+                tags["배달완료시각"] = `${hour}시 ${minute}분`;
+                tags["_배달완료_시"] = hour;
+                tags["_배달완료_분"] = minute;
+              }
+            }
+          }
+        });
+      });
+      
+      // ETA1 시각 추출 및 포맷팅
       const eta1Raw = tags["ETA 1"] || tags["ETA1 (배정지연)"] || "";
       const etaTime = eta1Raw.replace(/최초시간\s*/g, "").trim();
       tags["_ETA1_시각"] = etaTime;
+      
+      if (etaTime && etaTime.includes(':')) {
+        const [hour, minute] = etaTime.split(':');
+        tags["ETA1_시각"] = `${hour}시 ${minute}분`;
+        tags["_ETA1_시"] = parseInt(hour);
+        tags["_ETA1_분"] = parseInt(minute);
+      }
+      
+      // 배달시간 계산 (ETA1 - 배달완료 시각, 분 단위)
+      if (tags["_ETA1_시"] && tags["_배달완료_시"]) {
+        const eta1Minutes = tags["_ETA1_시"] * 60 + tags["_ETA1_분"];
+        const deliveryMinutes = parseInt(tags["_배달완료_시"]) * 60 + parseInt(tags["_배달완료_분"]);
+        const diffMinutes = deliveryMinutes - eta1Minutes;
+        tags["배달시간차이"] = diffMinutes > 0 ? `+${diffMinutes}분` : `${diffMinutes}분`;
+      }
+      
       tags["_ETA1_경과여부"] = isTimePassed(etaTime) ? "경과" : "미경과";
       
-      // 안분가 계산 (판매금액에서 숫자만 추출하여 계산)
-      const salesPrice = tags["판매가격"] ? parseInt(tags["판매가격"].replace(/[^\d]/g, '')) : 0;
-      const productDiscount = tags["상품 할인"] ? parseInt(tags["상품 할인"].replace(/[^\d]/g, '')) : 0;
+      // 안분가 계산
+      const salesPrice = tags["판매금액"] || 0;
+      const productDiscount = tags["상품할인"] || 0;
       
       if (salesPrice > 0) {
         const ratio = ((salesPrice - productDiscount) / salesPrice * 100).toFixed(2);
@@ -129,6 +176,29 @@ if (isZD) {
         </div>
       </div>
       <div id="eoc-detail-view" class="tab-view stealth"></div>
+      <div id="calculator-view" class="tab-view stealth">
+        <div style="padding: 8px; font-size: 10px;">
+          <h4 style="margin-bottom: 8px;">🧮 안분 계산기</h4>
+          <div style="margin-bottom: 6px;">
+            <label style="display: block; margin-bottom: 2px;">판매금액:</label>
+            <input id="calc-sales" type="text" readonly style="width: 100%; padding: 4px; background: #f0f0f0; border: 1px solid #ccc; font-size: 10px;">
+          </div>
+          <div style="margin-bottom: 6px;">
+            <label style="display: block; margin-bottom: 2px;">상품할인:</label>
+            <input id="calc-discount" type="text" readonly style="width: 100%; padding: 4px; background: #f0f0f0; border: 1px solid #ccc; font-size: 10px;">
+          </div>
+          <div style="margin-bottom: 6px;">
+            <label style="display: block; margin-bottom: 2px;">안분율:</label>
+            <input id="calc-ratio" type="text" readonly style="width: 100%; padding: 4px; background: #f0f0f0; border: 1px solid #ccc; font-size: 10px;">
+          </div>
+          <div style="margin-bottom: 6px;">
+            <label style="display: block; margin-bottom: 2px;">곱할 값 입력:</label>
+            <input id="calc-input" type="number" placeholder="숫자 입력" style="width: 100%; padding: 4px; border: 1px solid #ccc; font-size: 10px;">
+          </div>
+          <button id="calc-btn" style="width: 100%; padding: 6px; background: #32a1ce; color: white; border: none; border-radius: 2px; cursor: pointer; font-size: 10px;">계산</button>
+          <div id="calc-result" style="margin-top: 8px; padding: 6px; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 2px; font-weight: bold; text-align: center; display: none;"></div>
+        </div>
+      </div>
       <div id="settings-view" class="tab-view stealth">
         <label style="font-size:10px;">상담사 이름</label>
         <input id="set-name" type="text" style="width:100%; font-size:10px;">
@@ -146,6 +216,7 @@ if (isZD) {
       <div id="quick-btn-container"></div>
       <div class="footer">
         <button id="toggle-detail">EOC 정보</button>
+        <button id="toggle-calculator">🧮</button>
         <button id="toggle-settings">⚙️ 설정</button>
       </div>
       <div id="resize-handle"></div>
@@ -280,6 +351,20 @@ if (isZD) {
         if (opt.text) btn.title = tagEngine(opt.text, data.eoc, userSettings);
 
         btn.onclick = () => {
+          // 예외 버튼은 choice처럼 다음 선택지만 표시 (복사 안함)
+          if (opt.type === 'exception') {
+            data.tree.push({
+              step: currentStep,
+              label: opt.label,
+              type: opt.type,
+              text: opt.text,
+              next: opt.next,
+              children: []
+            });
+            refreshUI();
+            return;
+          }
+          
           // 트리에 추가
           data.tree.push({
             step: currentStep,
@@ -290,8 +375,8 @@ if (isZD) {
             children: []
           });
 
-          // 텍스트 복사
-          if (opt.text) {
+          // 텍스트 복사 (copy 타입만)
+          if (opt.type === 'copy' && opt.text) {
             const finalMsg = tagEngine(opt.text, data.eoc, userSettings);
             navigator.clipboard.writeText(finalMsg);
           }
@@ -384,22 +469,130 @@ if (isZD) {
       }
     };
 
+    // 고정 버튼 (수정 - 제대로 토글되게)
     document.getElementById('pin-btn').onclick = function() {
-      panel.classList.toggle('pinned');
-      panel.classList.remove('hover-mode');
-      this.style.background = panel.classList.contains('pinned') ? '#ddd' : 'transparent';
+      if (panel.classList.contains('pinned')) {
+        panel.classList.remove('pinned');
+        panel.classList.add('hover-mode');
+        this.style.background = 'transparent';
+      } else {
+        panel.classList.add('pinned');
+        panel.classList.remove('hover-mode');
+        this.style.background = '#ffc107';
+      }
     };
 
     document.getElementById('stealth-btn').onclick = () => panel.classList.toggle('stealth');
+    
+    // 드래그 이동 기능 추가
+    const header = panel.querySelector('.header');
+    let isDragging = false;
+    let dragStartX, dragStartY, panelStartX, panelStartY;
+    
+    header.addEventListener('mousedown', (e) => {
+      // 버튼 클릭은 드래그 시작하지 않음
+      if (e.target.tagName === 'BUTTON') return;
+      
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      
+      const rect = panel.getBoundingClientRect();
+      panelStartX = rect.left;
+      panelStartY = rect.top;
+      
+      header.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      
+      const deltaX = e.clientX - dragStartX;
+      const deltaY = e.clientY - dragStartY;
+      
+      const newLeft = panelStartX + deltaX;
+      const newTop = panelStartY + deltaY;
+      
+      // 화면 밖으로 나가지 않도록 제한
+      const maxLeft = window.innerWidth - panel.offsetWidth;
+      const maxTop = window.innerHeight - panel.offsetHeight;
+      
+      panel.style.left = Math.max(0, Math.min(newLeft, maxLeft)) + 'px';
+      panel.style.top = Math.max(0, Math.min(newTop, maxTop)) + 'px';
+      panel.style.right = 'auto'; // right 속성 제거
+    });
+    
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        header.style.cursor = 'move';
+      }
+    });
+    
+    header.style.cursor = 'move';
 
     document.getElementById('toggle-detail').onclick = () => { 
-      document.getElementById('settings-view').classList.add('stealth'); 
+      document.getElementById('settings-view').classList.add('stealth');
+      document.getElementById('calculator-view').classList.add('stealth'); 
       document.getElementById('eoc-detail-view').classList.toggle('stealth'); 
     };
 
+    document.getElementById('toggle-calculator').onclick = () => {
+      document.getElementById('eoc-detail-view').classList.add('stealth');
+      document.getElementById('settings-view').classList.add('stealth');
+      const calcView = document.getElementById('calculator-view');
+      calcView.classList.toggle('stealth');
+      
+      // 계산기 열릴 때 현재 티켓 데이터로 초기화
+      if (!calcView.classList.contains('stealth')) {
+        const tid = getTid();
+        const data = ticketStore[tid];
+        if (data && data.eoc) {
+          const sales = data.eoc["판매금액"] || 0;
+          const discount = data.eoc["상품할인"] || 0;
+          const ratio = sales > 0 ? (sales - discount) / sales : 0;
+          
+          document.getElementById('calc-sales').value = sales.toLocaleString();
+          document.getElementById('calc-discount').value = discount.toLocaleString();
+          document.getElementById('calc-ratio').value = (ratio * 100).toFixed(2) + '%';
+        }
+      }
+    };
+
     document.getElementById('toggle-settings').onclick = () => { 
-      document.getElementById('eoc-detail-view').classList.add('stealth'); 
+      document.getElementById('eoc-detail-view').classList.add('stealth');
+      document.getElementById('calculator-view').classList.add('stealth'); 
       document.getElementById('settings-view').classList.toggle('stealth'); 
+    };
+
+    // 계산기 계산 버튼
+    document.getElementById('calc-btn').onclick = () => {
+      const tid = getTid();
+      const data = ticketStore[tid];
+      if (!data || !data.eoc) {
+        alert('EOC 데이터가 없습니다');
+        return;
+      }
+      
+      const sales = data.eoc["판매금액"] || 0;
+      const discount = data.eoc["상품할인"] || 0;
+      const inputValue = parseFloat(document.getElementById('calc-input').value);
+      
+      if (isNaN(inputValue) || inputValue <= 0) {
+        alert('올바른 숫자를 입력해주세요');
+        return;
+      }
+      
+      const ratio = (sales - discount) / sales;
+      const result = Math.round(ratio * inputValue);
+      
+      const resultDiv = document.getElementById('calc-result');
+      resultDiv.textContent = `결과: ${result.toLocaleString()}`;
+      resultDiv.style.display = 'block';
+      
+      // 클립보드에 복사
+      navigator.clipboard.writeText(result.toString());
     };
 
     document.getElementById('save-settings').onclick = () => { 

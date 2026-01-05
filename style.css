@@ -42,7 +42,7 @@
 }
 
 /* 분기 마커 */
-.branch-marker { width: 100%; height: 1px; background: #32a1ce; margin: 4px 0; flex-shrink: 0; }
+.branch-marker { width: 100%; height: 2px; background: #32a1ce; opacity: 0.5; margin: 4px 0; flex-shrink: 0; }
 
 /* 버튼 공통 스타일 */
 .action-btn { 

@@ -29,14 +29,6 @@ function findCardByHeader(doc, headerText) {
 }
 
 /**
- * 안전하게 텍스트 추출
- */
-function safeText(element, selector) {
-  const el = element ? element.querySelector(selector) : null;
-  return el ? el.textContent.trim() : '';
-}
-
-/**
  * 테이블 행을 key-value로 파싱
  */
 function parseTableRows(card, selector = '.order-detail-table tr') {
@@ -279,29 +271,22 @@ function isTimePassed(t) {
 // ============================================================================
 // [Zendesk] UI 및 태그 치환 엔진
 // ============================================================================
-// 테스트용: 모든 페이지에서 로드
-let ticketStore = {};
-let utteranceData = {};
-let userSettings = { name: "" };
-let lastPath = location.pathname;
+if (isZD) {
+  let ticketStore = {};
+  let utteranceData = {};
+  let userSettings = { name: "" };
+  let lastPath = location.pathname;
 
-// JSON 외부 데이터 로드
-fetch(chrome.runtime.getURL('data_generated.json'))
-  .then(r => r.json())
-  .then(data => {
-    console.log('Data loaded:', data);
-    utteranceData = data.scenarios;
-    console.log('Scenarios:', Object.keys(utteranceData));
-    // 설정은 저장된 값 우선, 없으면 빈 기본값
-    if (!userSettings.name) userSettings.name = "";
-    if (!userSettings.quickButtons) userSettings.quickButtons = [];
-    initUI(); 
-  })
-  .catch(err => {
-    console.error('Failed to load data:', err);
-    utteranceData = {};
-    initUI();
-  });
+  // JSON 외부 데이터 로드
+  fetch(chrome.runtime.getURL('data_generated.json'))
+    .then(r => r.json())
+    .then(data => { 
+      utteranceData = data.scenarios; 
+      // 설정은 저장된 값 우선, 없으면 빈 기본값
+      if (!userSettings.name) userSettings.name = "";
+      if (!userSettings.quickButtons) userSettings.quickButtons = [];
+      initUI(); 
+    });
 
   function initUI() {
     const panel = document.createElement('div');
@@ -318,7 +303,6 @@ fetch(chrome.runtime.getURL('data_generated.json'))
         </div>
       </div>
       <div id="eoc-detail-view" class="tab-view stealth"></div>
-      <div id="sms-view" class="tab-view stealth"></div>
       <div id="calculator-view" class="tab-view stealth">
         <div style="padding: 8px; font-size: 10px;">
           <h4 style="margin-bottom: 8px;">🧮 안분 계산기</h4>
@@ -342,20 +326,31 @@ fetch(chrome.runtime.getURL('data_generated.json'))
           <div id="calc-result" style="margin-top: 8px; padding: 6px; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 2px; font-weight: bold; text-align: center; display: none;"></div>
         </div>
       </div>
-      <div id="settings-view" class="tab-view stealth"></div>
+      <div id="settings-view" class="tab-view stealth">
+        <label style="font-size:10px;">상담사 이름</label>
+        <input id="set-name" type="text" style="width:100%; font-size:10px;">
+        
+        <label style="font-size:10px; margin-top:5px; display:block;">퀵 버튼 (JSON 배열)</label>
+        <div style="font-size:8px; color:#666; margin-bottom:2px;">
+          예시: [{"label":"인사","text":"안녕하세요 {{상담사명}}입니다"},{"label":"끝인사","text":"좋은 하루 되세요!"}]
+        </div>
+        <textarea id="quick-buttons" style="width:100%; height:60px; font-size:9px; font-family:monospace;"></textarea>
+        
+        <button id="save-settings" style="width:100%; margin-top:3px; background:#32a1ce; color:white; font-size:10px;">저장</button>
+      </div>
       <div id="btn-container"></div>
+      <div id="anbunga-container"></div>
       <div id="quick-btn-container"></div>
       <div class="footer">
-        <button id="toggle-detail">📋 EOC</button>
-        <button id="toggle-sms">💬 SMS</button>
-        <button id="toggle-calculator">🧮 계산</button>
+        <button id="toggle-detail">EOC 정보</button>
+        <button id="toggle-calculator">🧮</button>
         <button id="toggle-settings">⚙️ 설정</button>
       </div>
       <div id="resize-handle"></div>
     `;
     document.body.appendChild(panel);
 
-    // 크기 조절 핸들 로직
+    // 크기 조절 기능
     const resizeHandle = document.getElementById('resize-handle');
     let isResizing = false;
     let startX, startY, startWidth, startHeight;
@@ -364,430 +359,265 @@ fetch(chrome.runtime.getURL('data_generated.json'))
       isResizing = true;
       startX = e.clientX;
       startY = e.clientY;
-      startWidth = panel.offsetWidth;
-      startHeight = panel.offsetHeight;
+      startWidth = parseInt(getComputedStyle(panel).width, 10);
+      startHeight = parseInt(getComputedStyle(panel).height, 10);
       e.preventDefault();
     });
 
     document.addEventListener('mousemove', (e) => {
       if (!isResizing) return;
-      
-      const deltaX = startX - e.clientX;
-      const deltaY = e.clientY - startY;
-      
-      const newWidth = Math.max(150, startWidth + deltaX);
-      const newHeight = Math.max(200, startHeight + deltaY);
-      
-      panel.style.width = newWidth + 'px';
-      panel.style.height = newHeight + 'px';
+      const width = startWidth - (e.clientX - startX);
+      const height = startHeight + (e.clientY - startY);
+      panel.style.width = Math.max(200, Math.min(800, width)) + 'px';
+      panel.style.height = Math.max(200, Math.min(window.innerHeight - 100, height)) + 'px';
     });
 
     document.addEventListener('mouseup', () => {
-      if (isResizing) {
-        isResizing = false;
-      }
+      isResizing = false;
     });
 
-    // 타이머 시작 (새 티켓 열릴 때 리셋)
-    let timerInterval = null;
-    let timerSeconds = 0;
+    // 태그 치환 엔진
+    window.tagEngine = function(text, data, settings) {
+      let result = text || "";
+      result = result.replace(/{{상담사명}}/g, settings.name || "상담사");
+      Object.entries(data).forEach(([key, val]) => {
+        const regex = new RegExp(`{{${key}}}`, 'g');
+        result = result.replace(regex, val);
+      });
+      return result;
+    };
 
-    function startTimer() {
-      timerSeconds = 0;
-      clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        timerSeconds++;
-        const minutes = Math.floor(timerSeconds / 60);
-        const seconds = timerSeconds % 60;
-        document.getElementById('timer-display').textContent = 
-          `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-      }, 1000);
-    }
-
-    function stopTimer() {
-      clearInterval(timerInterval);
-      timerInterval = null;
-    }
-
-    // UI 갱신 함수
-    function refreshUI() {
+    // UI 새로고침 함수
+    window.refreshUI = function() {
       const tid = getTid();
-      console.log('refreshUI called, tid:', tid);
-      console.log('utteranceData:', utteranceData);
-      
-      if (!ticketStore[tid]) { 
-        ticketStore[tid] = { scenario: null, tree: [], eoc: null }; 
-        startTimer(); // 새 티켓이면 타이머 시작
+      if (!tid) return;
+      if (!ticketStore[tid]) {
+        ticketStore[tid] = { 
+          scenario: null, 
+          tree: [],  // 선택 트리: [{step, choice, children: [...]}, ...]
+          eoc: {} 
+        };
       }
-      
-      const ticket = ticketStore[tid];
-      const nodeId = ticket.tree[ticket.tree.length - 1] || 'start';
-      
-      console.log('ticket:', ticket);
-      console.log('scenario:', ticket.scenario, 'nodeId:', nodeId);
-      
-      // 헤더 정보 업데이트
-      let headerText = '연동 대기 중...';
-      if (ticket.eoc) {
-        headerText = ticket.eoc["축약형 주문 ID"] || ticket.eoc["고유 주문 ID"] || "EOC 연동됨";
+      const data = ticketStore[tid];
+
+      // 헤더 박제 정보 업데이트
+      if (data.eoc["고유 주문 ID"]) {
+        const fId = data.eoc["고유 주문 ID"];
+        const shortId = data.eoc["축약형 주문 ID"] || "";
+        const storeName = data.eoc["이름"] || "";
+        document.getElementById('info-header').innerText = `*${fId.slice(-4)} | ${shortId} | ${storeName}`;
       }
-      document.getElementById('info-header').textContent = headerText;
+
+      // EOC 상세 정보 테이블 렌더링
+      const eocView = document.getElementById('eoc-detail-view');
       
-      // EOC 상세 정보 탭
-      renderEOCDetail();
-      
-      // 버튼 컨테이너 갱신
-      const container = document.getElementById('btn-container');
-      container.innerHTML = '';
-      
-      console.log('Rendering buttons...');
-      
-      if (!ticket.scenario) {
-        // 시나리오 선택
-        console.log('Rendering scenario selection buttons');
-        for (const key in utteranceData) {
-          console.log('Creating button for:', key);
+      if (!data.eoc) {
+        eocView.innerHTML = '<div style="padding:4px; font-size:9px;">EOC 데이터 없음</div>';
+      } else {
+        // 주문 유형 파싱 (세이브 배달 → "무료배달", 일반 → "한집배달")
+        const orderType = (data.eoc["주문 유형"] || "").includes("세이브") ? "무료배달" : "한집배달";
+        
+        // 결제시각 파싱
+        let paymentTime = "";
+        if (data.eoc["생성시간"]) {
+          const timeMatch = data.eoc["생성시간"].match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+          if (timeMatch) {
+            const [, year, month, day, hour, minute] = timeMatch;
+            const today = new Date();
+            const payDate = new Date(year, month - 1, day);
+            const dateLabel = (today.toDateString() === payDate.toDateString()) ? "오늘" : `${month}/${day}`;
+            paymentTime = `${dateLabel} ${hour}시 ${minute}분`;
+          }
+        }
+        
+        // 주문 메뉴 목록 생성
+        let menuHtml = '';
+        if (data.eoc["_주문메뉴_목록"] && Array.isArray(data.eoc["_주문메뉴_목록"])) {
+          menuHtml = data.eoc["_주문메뉴_목록"].map(menu => {
+            return `<div class="copyable-row" onclick="navigator.clipboard.writeText('${menu.details.replace(/'/g, "\\'")} (${menu.price})')">${menu.details} (${menu.price})</div>`;
+          }).join('');
+        }
+        
+        eocView.innerHTML = `
+          <div style="padding:2px; font-size:9px;">
+            <button id="toggle-raw-eoc" style="width:100%; padding:2px; font-size:8px; margin-bottom:2px; background:#f0f0f0; border:1px solid #ccc; cursor:pointer;">📋 EOC 원문 보기 ▼</button>
+            <div id="raw-eoc-data" style="display:none; max-height:200px; overflow-y:auto; background:#f9f9f9; border:1px solid #ddd; padding:2px; margin-bottom:4px;">
+              <table style="width:100%; font-size:8px; border-collapse:collapse;">
+                ${Object.entries(data.eoc).map(([k,v])=>`
+                  <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:1px 2px; font-weight:bold; width:40%; word-break:break-word;">${k}</td>
+                    <td style="padding:1px 2px; word-break:break-word;">${typeof v === 'object' ? JSON.stringify(v) : v}</td>
+                  </tr>
+                `).join('')}
+              </table>
+            </div>
+            
+            <div style="border:1px solid #ddd; padding:0;">
+              <div class="copyable-row" onclick="navigator.clipboard.writeText('${orderType}')"><strong>주문유형</strong> | ${orderType}</div>
+              <div class="copyable-row" onclick="navigator.clipboard.writeText('${data.eoc["고유 주문 ID"] || ""}')"><strong>고유번호</strong> | ${data.eoc["고유 주문 ID"] || ""}</div>
+              <div class="copyable-row" onclick="navigator.clipboard.writeText('${(data.eoc["이름"] || "").replace(/'/g, "\\'")}')"><strong>매장명</strong> | ${data.eoc["이름"] || ""}</div>
+              <div class="copyable-row" onclick="navigator.clipboard.writeText('${(data.eoc["전화번호"] || "").replace(/-/g, "")}')"><strong>전화번호</strong> | ${(data.eoc["전화번호"] || "").replace(/-/g, "")}</div>
+              <div class="copyable-row" onclick="navigator.clipboard.writeText('${paymentTime}')"><strong>결제시각</strong> | ${paymentTime}</div>
+              <div class="copyable-row" onclick="navigator.clipboard.writeText('${data.eoc["축약형 주문 ID"] || ""}')"><strong>축약번호</strong> | ${data.eoc["축약형 주문 ID"] || ""}</div>
+              
+              <div style="border-top:1px solid #ddd; margin-top:2px; padding-top:2px;">
+                <div style="font-weight:bold; margin-bottom:2px;">주문 메뉴</div>
+                ${menuHtml || '<div style="color:#888;">메뉴 정보 없음</div>'}
+              </div>
+              
+              <div style="border-top:1px solid #ddd; margin-top:2px; padding-top:2px;">
+                <div class="copyable-row" onclick="navigator.clipboard.writeText('${data.eoc["판매금액"] || 0}')"><strong>판매가격</strong> | ₩${(data.eoc["판매금액"] || 0).toLocaleString()}</div>
+                <div class="copyable-row" onclick="navigator.clipboard.writeText('${data.eoc["상품할인"] || 0}')"><strong>상품할인</strong> | ₩${(data.eoc["상품할인"] || 0).toLocaleString()}</div>
+              </div>
+              
+              <div style="border-top:1px solid #ddd; margin-top:2px; padding-top:2px;">
+                <div class="copyable-row" onclick="navigator.clipboard.writeText('${data.eoc["배달 유형"] || data.eoc["쿠리어 타입"] || ""}')"><strong>파트너유형</strong> | ${data.eoc["배달 유형"] || data.eoc["쿠리어 타입"] || ""}</div>
+                <div class="copyable-row" onclick="navigator.clipboard.writeText('${data.eoc["쿠리어 ID"] || ""}')"><strong>파트너ID</strong> | ${data.eoc["쿠리어 ID"] || ""}</div>
+                <div class="copyable-row" onclick="navigator.clipboard.writeText('${(data.eoc["쿠리어 전화번호"] || "").replace(/-/g, "")}')"><strong>파트너전화</strong> | ${(data.eoc["쿠리어 전화번호"] || "").replace(/-/g, "")}</div>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        // 원문 토글 버튼 이벤트
+        document.getElementById('toggle-raw-eoc').onclick = function() {
+          const rawData = document.getElementById('raw-eoc-data');
+          if (rawData.style.display === 'none') {
+            rawData.style.display = 'block';
+            this.textContent = '📋 EOC 원문 숨기기 ▲';
+          } else {
+            rawData.style.display = 'none';
+            this.textContent = '📋 EOC 원문 보기 ▼';
+          }
+        };
+      }
+
+      const btnBox = document.getElementById('btn-container');
+      btnBox.innerHTML = '';
+
+      // [A] 카테고리 선택 화면
+      if (!data.scenario) {
+        Object.keys(utteranceData).forEach(cat => {
           const btn = document.createElement('button');
           btn.className = 'action-btn btn-choice';
-          btn.textContent = key;
-          btn.onclick = () => { 
-            ticket.scenario = key; 
-            ticket.tree = ['start']; 
-            refreshUI(); 
-          };
-          container.appendChild(btn);
-        }
-      } else {
-        // 현재 시나리오의 노드 버튼들
-        const scenario = utteranceData[ticket.scenario];
-        if (!scenario || !scenario[nodeId]) {
-          ticket.scenario = null;
-          ticket.tree = [];
-          refreshUI();
-          return;
-        }
-        
-        scenario[nodeId].forEach(action => {
-          const btn = document.createElement('button');
-          btn.className = 'action-btn';
-          
-          if (action.type === 'copy') {
-            btn.className += ' btn-copy';
-            btn.textContent = action.label;
-            btn.onclick = () => {
-              copyToClipboard(replaceTags(action.text, ticket.eoc));
-              if (action.next) {
-                ticket.tree.push(action.next);
-                refreshUI();
-              }
-            };
-          } else if (action.type === 'choice') {
-            btn.className += ' btn-choice';
-            btn.textContent = action.label;
-            btn.onclick = () => {
-              if (action.next) {
-                ticket.tree.push(action.next);
-                refreshUI();
-              }
-            };
-          } else if (action.type === 'exception') {
-            btn.className += ' btn-exception';
-            btn.textContent = action.label;
-            btn.onclick = () => {
-              copyToClipboard(replaceTags(action.text, ticket.eoc));
-              if (action.next) {
-                ticket.tree.push(action.next);
-                refreshUI();
-              }
-            };
-          }
-          
-          container.appendChild(btn);
-        });
-        
-        // 브랜치 마커 (되돌아가기)
-        if (ticket.tree.length > 1) {
-          const marker = document.createElement('div');
-          marker.className = 'branch-marker';
-          marker.title = '이전 단계로';
-          marker.style.cursor = 'pointer';
-          marker.onclick = () => {
-            ticket.tree.pop();
+          btn.innerText = cat;
+          btn.onclick = () => {
+            data.scenario = cat;
+            data.tree = [];
             refreshUI();
           };
-          container.appendChild(marker);
-        }
+          btnBox.appendChild(btn);
+        });
+        return;
       }
-    }
 
-    // 태그 치환
-    function replaceTags(text, eoc) {
-      if (!eoc) return text;
-      let result = text;
-      
-      // 상담사명 치환
-      result = result.replace(/\{\{상담사명\}\}/g, userSettings.name || '상담사');
-      
-      // EOC 태그 치환
-      for (const key in eoc) {
-        const placeholder = `{{${key}}}`;
-        if (result.includes(placeholder)) {
-          result = result.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), eoc[key]);
-        }
+      // [B] 트리 렌더링 함수
+      function renderTree(tree, depth = 0) {
+  tree.forEach((node, idx) => {
+    const btn = document.createElement('button');
+    btn.className = `action-btn btn-${node.type}`;
+    btn.innerText = node.label;
+    if (node.text) btn.title = tagEngine(node.text, data.eoc, userSettings);
+    btn.onclick = () => { tree.splice(idx + 1); refreshUI(); };
+    btnBox.appendChild(btn);
+    const marker = document.createElement('div'); marker.className = 'branch-marker'; btnBox.appendChild(marker); // 줄바꿈 마커 추가
+    if (node.children && node.children.length > 0) renderTree(node.children, depth + 1);
+  });
+}
+
+      // 트리 렌더링
+      renderTree(data.tree);
+
+      // 현재 단계의 선택지 표시
+      const currentStep = data.tree.length === 0 ? 'start' : data.tree[data.tree.length - 1].next;
+      const options = utteranceData[data.scenario][currentStep] || [];
+
+      // 분기 마커 추가 (선택지가 있을 때만)
+      if (options.length > 0) {
+        const marker = document.createElement('div');
+        marker.className = 'branch-marker';
+        btnBox.appendChild(marker);
       }
-      
-      return result;
-    }
 
-    function copyToClipboard(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        // 성공 피드백 (선택사항)
-      });
-    }
+      options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = `action-btn btn-${opt.type}`;
+        btn.innerText = opt.label;
+        
+        if (opt.text) btn.title = tagEngine(opt.text, data.eoc, userSettings);
 
-    // 퀵 버튼 렌더링
-    function renderQuickButtons() {
-      const container = document.getElementById('quick-btn-container');
-      container.innerHTML = '';
-      
-      const quickButtons = userSettings.quickButtons || [];
-      quickButtons.forEach(btn => {
-        const button = document.createElement('button');
-        button.className = 'action-btn btn-quick';
-        button.textContent = btn.label;
-        button.onclick = () => {
-          const tid = getTid();
-          const ticket = ticketStore[tid];
-          copyToClipboard(replaceTags(btn.text, ticket ? ticket.eoc : null));
+        btn.onclick = () => {
+          // 예외 버튼은 choice처럼 다음 선택지만 표시 (복사 안함)
+          if (opt.type === 'exception') {
+            data.tree.push({
+              step: currentStep,
+              label: opt.label,
+              type: opt.type,
+              text: opt.text,
+              next: opt.next,
+              children: []
+            });
+            refreshUI();
+            return;
+          }
+          
+          // 트리에 추가
+          data.tree.push({
+            step: currentStep,
+            label: opt.label,
+            type: opt.type,
+            text: opt.text,
+            next: opt.next,
+            children: []
+          });
+
+          // 텍스트 복사 (copy 타입만)
+          if (opt.type === 'copy' && opt.text) {
+            const finalMsg = tagEngine(opt.text, data.eoc, userSettings);
+            navigator.clipboard.writeText(finalMsg);
+          }
+
+          refreshUI();
         };
-        container.appendChild(button);
+        btnBox.appendChild(btn);
       });
-    }
 
-    // EOC 상세 정보 렌더링
-    function renderEOCDetail() {
-      const tid = getTid();
-      const data = ticketStore[tid];
-      const detailView = document.getElementById('eoc-detail-view');
+      renderQuickButtons();
+      renderAnbunga();
+    };
+
+    // 퀵버튼 렌더링 함수 (항상 표시)
+    window.renderQuickButtons = function() {
+      const quickBox = document.getElementById('quick-btn-container');
+      if (!quickBox) return;
       
-      if (!data || !data.eoc) {
-        detailView.innerHTML = '<div style="padding: 8px; font-size: 10px;">EOC 데이터 없음</div>';
+      quickBox.innerHTML = '';
+      const quickBtns = userSettings.quickButtons || [];
+      
+      if (quickBtns.length === 0) {
+        // 비어있을 때 안내 메시지
+        const hint = document.createElement('div');
+        hint.style.fontSize = '9px';
+        hint.style.color = '#888';
+        hint.style.padding = '2px 4px';
+        hint.innerText = '⚙️ 설정에서 퀵 버튼을 추가하세요';
+        quickBox.appendChild(hint);
         return;
       }
       
-      let html = '<div style="padding: 4px; font-size: 9px; overflow-y: auto; height: 100%;">';
-      html += '<h4 style="margin-bottom: 4px; font-size: 11px;">📋 EOC 정보</h4>';
-      
-      // 주문 유형 (세이브 배달이면 "무료배달", 아니면 "한집배달")
-      const orderType = (data.eoc["주문 유형"] || "").includes("세이브") ? "무료배달" : "한집배달";
-      
-      // 주요 정보만 표시
-      const displayItems = [
-        { label: "주문유형", value: orderType },
-        { label: "고유번호", value: data.eoc["고유 주문 ID"] },
-        { label: "매장명", value: data.eoc["이름"] },
-        { label: "전화번호", value: data.eoc["전화번호"]?.replace(/-/g, "") },
-        { label: "축약번호", value: data.eoc["축약형 주문 ID"] },
-        { label: "판매가격", value: data.eoc["판매금액"] },
-        { label: "상품할인", value: data.eoc["상품할인"] },
-        { label: "파트너유형", value: data.eoc["배달 유형"] || data.eoc["쿠리어 타입"] },
-        { label: "파트너ID", value: data.eoc["쿠리어 ID"] },
-        { label: "파트너전화", value: data.eoc["전화번호"]?.replace(/-/g, "") }
-      ];
-      
-      displayItems.forEach(item => {
-        if (item.value) {
-          let displayValue = item.value;
-          // 금액은 숫자만 추출
-          if (item.label.includes("가격") || item.label.includes("할인")) {
-            const numMatch = String(item.value).match(/\d+/g);
-            displayValue = numMatch ? numMatch.join("") : item.value;
-          }
-          
-          html += `<div class="copyable-row" onclick="navigator.clipboard.writeText('${String(displayValue).replace(/'/g, "\\'")}')">`;
-          html += `<strong>${item.label}:</strong> ${displayValue}`;
-          html += `</div>`;
-        }
+      quickBtns.forEach(qb => {
+        const btn = document.createElement('button');
+        btn.className = 'action-btn btn-quick';
+        btn.innerText = qb.label;
+        btn.onclick = () => {
+          const tid = getTid();
+          const data = ticketStore[tid] || { eoc: {} };
+          const finalMsg = tagEngine(qb.text, data.eoc, userSettings);
+          navigator.clipboard.writeText(finalMsg);
+        };
+        quickBox.appendChild(btn);
       });
-      
-      html += '</div>';
-      detailView.innerHTML = html;
     };
-
-    // SMS 탭 렌더링
-    function renderSMS() {
-      const smsView = document.getElementById('sms-view');
-      if (!smsView) return;
-      
-      const smsTemplates = userSettings.smsTemplates || getDefaultSMSTemplates();
-      
-      let html = '<div style="padding: 2px; font-size: 9px; overflow-y: auto; height: 100%;">';
-      html += '<h4 style="margin: 2px 0; font-size: 11px; text-align: center;">💬 SMS 발송</h4>';
-      
-      const groups = [
-        { name: "고객", emoji: "👤" },
-        { name: "배달파트너", emoji: "🛵" },
-        { name: "스토어", emoji: "🏪" }
-      ];
-      
-      groups.forEach(group => {
-        html += `<div style="margin: 4px 0; border-top: 1px solid #ddd; padding-top: 2px;">`;
-        html += `<div style="font-weight: bold; margin-bottom: 2px;">${group.emoji} ${group.name}</div>`;
-        html += `<div style="display: flex; flex-wrap: wrap; gap: 2px;">`;
-        
-        const templates = smsTemplates[group.name] || [];
-        templates.forEach((template, idx) => {
-          html += `<button class="action-btn btn-sms" style="width: calc(50% - 1px); min-height: 20px; padding: 2px 4px; font-size: 9px;" onclick="copyToClipboard('${template.text.replace(/'/g, "\\'")}')">`;
-          html += template.label;
-          html += `</button>`;
-        });
-        
-        html += `</div></div>`;
-      });
-      
-      html += '</div>';
-      smsView.innerHTML = html;
-    }
-
-    // 기본 SMS 템플릿
-    function getDefaultSMSTemplates() {
-      return {
-        "고객": [
-          { label: "배달지연", text: "고객님, 주문하신 음식이 배달 지연되고 있습니다. 죄송합니다." },
-          { label: "조리지연", text: "고객님, 매장에서 조리가 지연되고 있습니다. 죄송합니다." },
-          { label: "[내용작성]", text: "" },
-          { label: "[내용작성]", text: "" }
-        ],
-        "배달파트너": [
-          { label: "픽업요청", text: "픽업 부탁드립니다." },
-          { label: "정정배달", text: "정정배달 요청합니다." },
-          { label: "[내용작성]", text: "" },
-          { label: "[내용작성]", text: "" }
-        ],
-        "스토어": [
-          { label: "조리독촉", text: "조리 진행 부탁드립니다." },
-          { label: "재조리", text: "재조리 요청합니다." },
-          { label: "[내용작성]", text: "" },
-          { label: "[내용작성]", text: "" }
-        ]
-      };
-    }
-
-    // 설정 탭 렌더링
-    function renderSettings() {
-      const settingsView = document.getElementById('settings-view');
-      if (!settingsView) return;
-      
-      const smsTemplates = userSettings.smsTemplates || getDefaultSMSTemplates();
-      
-      function getGroupEmoji(group) {
-        const emojis = { "고객": "👤", "배달파트너": "🛵", "스토어": "🏪" };
-        return emojis[group] || "";
-      }
-      
-      // 퀵버튼을 JSON으로 변환
-      const quickButtonsJson = JSON.stringify(userSettings.quickButtons || [], null, 2);
-      
-      // SMS 템플릿을 그룹별 JSON으로 변환
-      const smsJson = {};
-      Object.keys(smsTemplates).forEach(group => {
-        smsJson[group] = JSON.stringify(smsTemplates[group], null, 2);
-      });
-      
-      settingsView.innerHTML = `
-        <div style="padding: 4px; font-size: 10px; overflow-y: auto; height: 100%;">
-          <label style="font-size:10px; display:block; margin-bottom:2px;">상담사 이름</label>
-          <input id="input-name" type="text" value="${userSettings.name || ''}" placeholder="상담사" style="width:100%; font-size:10px; padding:4px; margin-bottom:8px; border:1px solid #ccc; border-radius:2px;">
-          
-          <hr style="margin:8px 0; border:none; border-top:1px solid #ddd;">
-          
-          <label style="font-size:10px; display:block; margin-bottom:2px;">퀵 버튼 (JSON 배열)</label>
-          <textarea id="quick-buttons-json" placeholder='[{"label":"인사","text":"안녕하세요 {{상담사명}}입니다"},{"label":"끝인사","text":"좋은 하루 되세요!"}]' style="width:100%; height:60px; font-size:9px; font-family:monospace; padding:4px; border:1px solid #ccc; border-radius:2px; resize:vertical;">${quickButtonsJson}</textarea>
-          <button id="btn-save-quick" style="width:100%; margin:4px 0; padding:4px; background:#32a1ce; color:white; border:none; border-radius:2px; font-size:9px; cursor:pointer;">퀵 버튼 저장</button>
-          
-          <hr style="margin:8px 0; border:none; border-top:1px solid #ddd;">
-          
-          <label style="font-size:10px; display:block; margin-bottom:4px;">SMS 설정</label>
-          
-          <div style="margin:4px 0;">
-            <div style="font-weight:bold; font-size:10px; margin-bottom:2px;">👤 고객</div>
-            <textarea id="sms-customer" placeholder='[{"label":"배달지연","text":"고객님, 주문하신 음식이..."},{"label":"조리지연","text":"고객님, 매장에서..."}]' style="width:100%; height:50px; font-size:9px; font-family:monospace; padding:4px; border:1px solid #ccc; border-radius:2px; resize:vertical;">${smsJson["고객"]}</textarea>
-          </div>
-          
-          <div style="margin:4px 0;">
-            <div style="font-weight:bold; font-size:10px; margin-bottom:2px;">🛵 배달파트너</div>
-            <textarea id="sms-partner" placeholder='[{"label":"픽업요청","text":"픽업 부탁드립니다."},{"label":"정정배달","text":"정정배달 요청합니다."}]' style="width:100%; height:50px; font-size:9px; font-family:monospace; padding:4px; border:1px solid #ccc; border-radius:2px; resize:vertical;">${smsJson["배달파트너"]}</textarea>
-          </div>
-          
-          <div style="margin:4px 0;">
-            <div style="font-weight:bold; font-size:10px; margin-bottom:2px;">🏪 스토어</div>
-            <textarea id="sms-store" placeholder='[{"label":"조리독촉","text":"조리 진행 부탁드립니다."},{"label":"재조리","text":"재조리 요청합니다."}]' style="width:100%; height:50px; font-size:9px; font-family:monospace; padding:4px; border:1px solid #ccc; border-radius:2px; resize:vertical;">${smsJson["스토어"]}</textarea>
-          </div>
-          
-          <button id="btn-save-sms" style="width:100%; margin:4px 0; padding:4px; background:#32a1ce; color:white; border:none; border-radius:2px; font-size:9px; cursor:pointer;">SMS 설정 저장</button>
-        </div>
-      `;
-      
-      // 이름 저장
-      document.getElementById('input-name').addEventListener('change', function() {
-        userSettings.name = this.value;
-        chrome.storage.local.set({userSettings});
-        document.getElementById('info-header').textContent = this.value;
-      });
-      
-      // 퀵버튼 저장
-      document.getElementById('btn-save-quick').onclick = function() {
-        try {
-          const jsonText = document.getElementById('quick-buttons-json').value;
-          const parsed = JSON.parse(jsonText);
-          
-          if (!Array.isArray(parsed)) {
-            throw new Error('배열 형식이어야 합니다');
-          }
-          
-          userSettings.quickButtons = parsed;
-          chrome.storage.local.set({userSettings});
-          renderQuickButtons();
-          alert('퀵 버튼이 저장되었습니다.');
-        } catch (e) {
-          alert('JSON 형식 오류:\n' + e.message);
-        }
-      };
-      
-      // SMS 저장
-      document.getElementById('btn-save-sms').onclick = function() {
-        try {
-          const customerJson = document.getElementById('sms-customer').value;
-          const partnerJson = document.getElementById('sms-partner').value;
-          const storeJson = document.getElementById('sms-store').value;
-          
-          const newTemplates = {
-            "고객": JSON.parse(customerJson),
-            "배달파트너": JSON.parse(partnerJson),
-            "스토어": JSON.parse(storeJson)
-          };
-          
-          // 유효성 검사
-          Object.entries(newTemplates).forEach(([group, templates]) => {
-            if (!Array.isArray(templates)) {
-              throw new Error(`${group}: 배열 형식이어야 합니다`);
-            }
-            templates.forEach((template, idx) => {
-              if (!template.label || !template.text) {
-                throw new Error(`${group} ${idx+1}번째: label과 text가 필요합니다`);
-              }
-            });
-          });
-          
-          userSettings.smsTemplates = newTemplates;
-          chrome.storage.local.set({userSettings});
-          renderSMS();
-          alert('SMS 설정이 저장되었습니다.');
-        } catch (e) {
-          alert('JSON 형식 오류:\n' + e.message);
-        }
-      };
-    }
 
     // 안분가 렌더링 함수
     window.renderAnbunga = function() {
@@ -815,21 +645,14 @@ fetch(chrome.runtime.getURL('data_generated.json'))
     // 설정 로드
     chrome.storage.local.get("userSettings", r => { 
       if(r.userSettings) { 
-        userSettings = r.userSettings;
-        // SMS 템플릿이 없으면 기본값 설정
-        if (!userSettings.smsTemplates) {
-          userSettings.smsTemplates = getDefaultSMSTemplates();
-        }
+        userSettings = r.userSettings; 
+        document.getElementById('set-name').value = userSettings.name || ""; 
+        document.getElementById('quick-buttons').value = JSON.stringify(userSettings.quickButtons || [], null, 2);
       } else {
         // 초기값 설정
-        userSettings = {
-          name: "",
-          quickButtons: [],
-          smsTemplates: getDefaultSMSTemplates()
-        };
+        document.getElementById('quick-buttons').value = '[]';
       }
       renderQuickButtons();
-      renderSMS();
     });
 
     // 버튼 이벤트 바인딩
@@ -908,27 +731,12 @@ fetch(chrome.runtime.getURL('data_generated.json'))
     document.getElementById('toggle-detail').onclick = () => { 
       document.getElementById('settings-view').classList.add('stealth');
       document.getElementById('calculator-view').classList.add('stealth'); 
-      document.getElementById('sms-view').classList.add('stealth');
       document.getElementById('eoc-detail-view').classList.toggle('stealth'); 
-    };
-
-    document.getElementById('toggle-sms').onclick = () => {
-      document.getElementById('eoc-detail-view').classList.add('stealth');
-      document.getElementById('settings-view').classList.add('stealth');
-      document.getElementById('calculator-view').classList.add('stealth');
-      const smsView = document.getElementById('sms-view');
-      smsView.classList.toggle('stealth');
-      
-      // SMS 탭 열릴 때 렌더링
-      if (!smsView.classList.contains('stealth')) {
-        renderSMS();
-      }
     };
 
     document.getElementById('toggle-calculator').onclick = () => {
       document.getElementById('eoc-detail-view').classList.add('stealth');
       document.getElementById('settings-view').classList.add('stealth');
-      document.getElementById('sms-view').classList.add('stealth');
       const calcView = document.getElementById('calculator-view');
       calcView.classList.toggle('stealth');
       
@@ -951,14 +759,7 @@ fetch(chrome.runtime.getURL('data_generated.json'))
     document.getElementById('toggle-settings').onclick = () => { 
       document.getElementById('eoc-detail-view').classList.add('stealth');
       document.getElementById('calculator-view').classList.add('stealth'); 
-      document.getElementById('sms-view').classList.add('stealth');
-      const settingsView = document.getElementById('settings-view');
-      settingsView.classList.toggle('stealth');
-      
-      // 설정 탭 열릴 때 렌더링
-      if (!settingsView.classList.contains('stealth')) {
-        renderSettings();
-      }
+      document.getElementById('settings-view').classList.toggle('stealth'); 
     };
 
     // 계산기 계산 버튼
@@ -990,6 +791,19 @@ fetch(chrome.runtime.getURL('data_generated.json'))
       navigator.clipboard.writeText(result.toString());
     };
 
+    document.getElementById('save-settings').onclick = () => { 
+      userSettings.name = document.getElementById('set-name').value;
+      try {
+        userSettings.quickButtons = JSON.parse(document.getElementById('quick-buttons').value);
+        chrome.storage.local.set({userSettings}); 
+        alert("저장됨"); 
+        renderQuickButtons();
+        refreshUI();
+      } catch (e) {
+        alert("퀵 버튼 JSON 형식 오류:\n" + e.message);
+      }
+    };
+
     // EOC 데이터 수신 감지
     chrome.storage.onChanged.addListener(c => { 
       if(c.transfer_buffer) { 
@@ -1011,6 +825,7 @@ fetch(chrome.runtime.getURL('data_generated.json'))
 
     refreshUI();
   }
+}
 
 function getTid() { 
   return location.pathname.match(/tickets\/(\d+)/)?.[1] || 'test-env'; 

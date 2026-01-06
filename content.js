@@ -53,7 +53,7 @@ function getRelativeDate(dateStr) {
 }
 
 /**
- * EOC 페이지 전체 파싱 (사용자 요청 로직 + 추가 기능 통합)
+ * EOC 페이지 전체 파싱
  */
 function parseEOCPage(doc) {
   const eoc원문 = {};
@@ -63,7 +63,7 @@ function parseEOCPage(doc) {
   const orderInfoCard = findCardByHeader(doc, '주문정보');
   if (orderInfoCard) {
     const orderType = findValueInTable(orderInfoCard, '주문 유형');
-    if (orderType) eoc원문.배달유형 = orderType.includes('세이브 배달') ? '무료배달' : '한집배달';
+    eoc원문.배달유형 = (orderType && orderType.includes('세이브')) ? '무료배달' : '한집배달';
     
     eoc원문.축약형주문번호 = (findValueInTable(orderInfoCard, '축약형 주문 ID') || '').split('\n')[0].trim();
     eoc원문.고유주문번호 = (findValueInTable(orderInfoCard, '고유 주문 ID') || '').split('\n')[0].trim();
@@ -75,29 +75,25 @@ function parseEOCPage(doc) {
 
     const eta1 = findValueInTable(orderInfoCard, 'ETA 1');
     if (eta1) {
-      const timeMatch = eta1.match(/최초시간\s+(\d{2}):(\d{2})/);
-      if (timeMatch) {
-        eoc원문.eta1_int = parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]);
-        eoc원문.eta1_str = `${timeMatch[1]}시 ${timeMatch[2]}분`;
+      const m = eta1.match(/최초시간\s+(\d{2}):(\d{2})/);
+      if (m) {
+        eoc원문.eta1_int = parseInt(m[1]) * 60 + parseInt(m[2]);
+        eoc원문.eta1_str = `${m[1]}시 ${m[2]}분`;
       }
     }
 
     const eta3 = findValueInTable(orderInfoCard, 'ETA 3');
     if (eta3) {
-      const times = [...eta3.matchAll(/(\d{2}):(\d{2})/g)];
-      const updateTimes = [];
-      for (let i = 1; i < times.length; i++) {
-        updateTimes.push(`${times[i][1]}:${times[i][2]}`);
-      }
-      eoc원문.픽업후갱신 = updateTimes.join(', ');
+      const times = [...eta3.matchAll(/(\d{2}):(\d{2})/g)].slice(1).map(m => `${m[1]}:${m[2]}`);
+      eoc원문.픽업후갱신 = times.join(', ');
     }
 
     const payment = findValueInTable(orderInfoCard, '결제 금액');
     if (payment) {
-      const paymentMatch = payment.match(/₩([\d,]+)/);
-      if (paymentMatch) eoc원문.결제금액 = parseInt(paymentMatch[1].replace(/,/g, ''));
-      const salePriceMatch = payment.match(/판매가격:\s*₩([\d,]+)/);
-      if (salePriceMatch) eoc원문.판매가격 = parseInt(salePriceMatch[1].replace(/,/g, ''));
+      const pMatch = payment.match(/₩([\d,]+)/);
+      if (pMatch) eoc원문.결제금액 = parseInt(pMatch[1].replace(/,/g, ''));
+      const sMatch = payment.match(/판매가격:\s*₩([\d,]+)/);
+      if (sMatch) eoc원문.판매가격 = parseInt(sMatch[1].replace(/,/g, ''));
     }
 
     const createTime = findValueInTable(orderInfoCard, '생성시간');
@@ -110,83 +106,70 @@ function parseEOCPage(doc) {
   if (menuCard) {
     const menuTable = menuCard.querySelector('.el-table__body');
     if (menuTable) {
-      const menuRows = menuTable.querySelectorAll('.el-table__row');
-      const menuItems = [];
-      menuRows.forEach(row => {
+      const menuList = [];
+      const menuItemsLegacy = [];
+      menuTable.querySelectorAll('.el-table__row').forEach(row => {
         const cells = row.querySelectorAll('.el-table__cell');
         if (cells.length >= 3) {
           const menuText = cells[2].textContent.trim();
           const lines = menuText.split('\n').filter(l => l.trim());
-          let formattedMenu = '';
+          let formatted = '';
           lines.forEach(line => {
             line = line.trim();
-            if (line) {
-              if (line.startsWith('옵션:')) formattedMenu += '  ' + line + '\n';
-              else formattedMenu += line + '\n';
-            }
+            if (line.startsWith('옵션:')) formatted += '  ' + line + '\n';
+            else formatted += line + '\n';
           });
-          menuItems.push(formattedMenu.trim());
+          menuList.push(formatted.trim());
+          menuItemsLegacy.push({ menuId: cells[0].textContent.trim(), price: cells[1].textContent.trim(), details: cells[2].textContent.trim() });
         }
       });
-      eoc원문.주문메뉴 = menuItems.join('\n\n');
+      eoc원문.주문메뉴 = menuList.join('\n\n');
+      tags["_주문메뉴_목록"] = menuItemsLegacy;
     }
   }
   
   // 3. 결제 (쿠폰)
   const paymentCard = findCardByHeader(doc, '결제');
   if (paymentCard) {
-    let 할인금액합계 = 0;
-    let 배달비할인 = 0;
-    const headers = paymentCard.querySelectorAll('h4');
-    for (const header of headers) {
-      if (header.textContent.includes('쿠폰')) {
-        let nextEl = header.nextElementSibling;
-        while (nextEl && !nextEl.classList.contains('el-table')) nextEl = nextEl.nextElementSibling;
-        if (nextEl && nextEl.classList.contains('el-table')) {
-          const tbody = nextEl.querySelector('.el-table__body');
-          if (tbody) {
-            const rows = tbody.querySelectorAll('.el-table__row');
-            rows.forEach(row => {
-              const cells = row.querySelectorAll('.el-table__cell');
-              if (cells.length >= 3) {
-                const 할인유형 = cells[1].textContent.trim();
-                const 가격 = extractNumber(cells[2].textContent.trim());
-                if (할인유형.includes('상품 할인') || 할인유형.includes('디쉬 할인')) {
-                  할인금액합계 += 가격;
-                } else if (할인유형.includes('배달비')) {
-                  배달비할인 = 가격;
-                }
-              }
-            });
+    let disc = 0, delivDisc = 0;
+    const h4s = paymentCard.querySelectorAll('h4');
+    let couponHeader = null;
+    h4s.forEach(h => { if(h.textContent.includes('쿠폰')) couponHeader = h; });
+
+    if (couponHeader) {
+      let nextEl = couponHeader.nextElementSibling;
+      while (nextEl && !nextEl.classList.contains('el-table')) nextEl = nextEl.nextElementSibling;
+      if (nextEl) {
+        nextEl.querySelectorAll('.el-table__row').forEach(row => {
+          const cells = row.querySelectorAll('.el-table__cell');
+          if (cells.length >= 3) {
+            const type = cells[1].textContent.trim();
+            const price = extractNumber(cells[2].textContent);
+            if (type.includes('상품 할인') || type.includes('디쉬 할인')) disc += price;
+            else if (type.includes('배달비')) delivDisc += price;
           }
-        }
-        break;
+        });
       }
     }
-    eoc원문.할인금액 = 할인금액합계;
-    eoc원문.배달비 = 배달비할인;
+    eoc원문.할인금액 = disc;
+    eoc원문.배달비 = delivDisc;
+    tags["상품할인"] = disc;
   }
   
   // 4. 배달지
   const deliveryCard = findCardByHeader(doc, '배달지');
   if (deliveryCard) {
     eoc원문.고객전화 = (findValueInTable(deliveryCard, '전화번호') || '').split('\n')[0].trim();
-    const roadAddr = findValueInTable(deliveryCard, '도로명 주소');
-    const placeName = findValueInTable(deliveryCard, '지명');
-    const detailAddr = findValueInTable(deliveryCard, '상세 주소');
-    const addressParts = [];
-    if (roadAddr) {
-      addressParts.push(roadAddr);
-      if (placeName && placeName !== roadAddr) addressParts.push(placeName);
-    } else if (placeName) addressParts.push(placeName);
-    if (detailAddr) addressParts.push(detailAddr);
-    eoc원문.배달지 = addressParts.join(', ');
-    
-    const deliveryReq = findValueInTable(deliveryCard, '선택된 배송요청사항') || '';
-    const deliveryMemo = findValueInTable(deliveryCard, '비고') || '';
-    const deliveryTip = findValueInTable(deliveryCard, '배달팁') || '';
-    const reqParts = [deliveryReq, deliveryMemo, deliveryTip].filter(p => p && p.trim());
-    eoc원문.배달요청사항_비고_배달팁 = reqParts.join(' / ');
+    const road = findValueInTable(deliveryCard, '도로명 주소');
+    const place = findValueInTable(deliveryCard, '지명');
+    const detail = findValueInTable(deliveryCard, '상세 주소');
+    eoc원문.배달지 = [road, (place && place !== road ? place : null), detail].filter(v => v).join(', ');
+    tags["통합주소"] = eoc원문.배달지;
+
+    const req = findValueInTable(deliveryCard, '선택된 배송요청사항');
+    const memo = findValueInTable(deliveryCard, '비고');
+    const tip = findValueInTable(deliveryCard, '배달팁');
+    eoc원문.배달요청사항_비고_배달팁 = [req, memo, tip].filter(v => v && v.trim()).join(' / ');
   }
   
   // 5. 스토어
@@ -196,27 +179,23 @@ function parseEOCPage(doc) {
     eoc원문.스토어명 = (findValueInTable(storeCard, '이름') || '').split('\n')[0].trim();
     eoc원문.스토어번호 = (findValueInTable(storeCard, '전화번호') || '').split('\n')[0].trim();
     eoc원문.영업상태 = findValueInTable(storeCard, '영업 상태');
-    const posType = findValueInTable(storeCard, 'POS 타입');
-    if (posType) eoc원문.포스타입 = posType.toUpperCase().includes('COUPANG_POS') ? '쿠팡포스' : '쿠팡포스외';
+    const pos = findValueInTable(storeCard, 'POS 타입');
+    if (pos) eoc원문.포스타입 = pos.toUpperCase().includes('COUPANG_POS') ? '쿠팡포스' : '쿠팡포스외';
   }
   
-  // 6. 쿠리어 (라디오 버튼 처리 추가)
+  // 6. 쿠리어 (라디오 버튼 처리)
   const courierCard = findCardByHeader(doc, '쿠리어');
   if (courierCard) {
     eoc원문.배달파트너id = (findValueInTable(courierCard, '쿠리어 ID') || '').split('\n')[0].trim();
     eoc원문.배달파트너전화 = (findValueInTable(courierCard, '전화번호') || '').split('\n')[0].trim();
     eoc원문.배달유형_쿠리어 = findValueInTable(courierCard, '배달 유형');
     
-    // [중요] 쿠리어 타입: 라디오 버튼 체크 여부 확인
     let cType = null;
     const typeRow = Array.from(courierCard.querySelectorAll('.order-detail-table tr')).find(r => r.textContent.includes('쿠리어 타입'));
     if (typeRow) {
         const checkedRadio = typeRow.querySelector('input[type="radio"]:checked');
-        if (checkedRadio) {
-            // 라디오 옆의 텍스트(label) 가져오기
-            cType = checkedRadio.parentElement.textContent.trim();
-        } else {
-            // 라디오가 없으면 그냥 텍스트
+        if (checkedRadio) cType = checkedRadio.parentElement.textContent.trim();
+        else {
             const valCell = typeRow.querySelectorAll('td')[1];
             if(valCell) cType = valCell.textContent.trim();
         }
@@ -244,26 +223,27 @@ function parseEOCPage(doc) {
       historyRows.forEach(row => {
         const cells = row.querySelectorAll('.el-table__cell');
         if (cells.length >= 6) {
-          const 상태 = cells[2].textContent.trim();
-          const 생성ID = cells[5].textContent.trim();
-          const timeMatch = 생성ID.match(/(\d{2}):(\d{2}):(\d{2})/);
-          if (timeMatch && 상태) {
+          const status = cells[2].textContent.trim();
+          const createdText = cells[5].textContent.trim();
+          const timeMatch = createdText.match(/(\d{2}):(\d{2}):(\d{2})/);
+          
+          if (timeMatch && status) {
             const h = parseInt(timeMatch[1]);
             const m = parseInt(timeMatch[2]);
             const timeStr = `${h}시 ${m}분`;
             
-            if (상태 === '배달 완료') {
-                const fullMatch = 생성ID.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+            if (status === '배달 완료') {
+                const fullMatch = createdText.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
                 if(fullMatch) {
                     tags["배달완료시각"] = `${fullMatch[4]}시 ${fullMatch[5]}분`;
                     tags["_배달완료_시"] = fullMatch[4];
                     tags["_배달완료_분"] = fullMatch[5];
                 }
             }
-            if (상태.includes('픽업') || 상태.includes('Pick Up') || 상태.includes('배달 시작')) {
+            if (status.includes('픽업') || status.includes('Pick Up') || status.includes('배달 시작')) {
                 tags["픽업시각"] = timeStr;
             }
-            historyItems.push({ 상태: 상태, 시각_int: h * 60 + m, 시각_str: timeStr });
+            historyItems.push({ 상태: status, 시각_int: h * 60 + m, 시각_str: timeStr });
           }
         }
       });
@@ -271,7 +251,18 @@ function parseEOCPage(doc) {
     }
   }
 
-  // 데이터 병합 및 계산
+  // 안전장치 (모든 테이블 값 저장)
+  doc.querySelectorAll('.order-detail-card').forEach(card => {
+    card.querySelectorAll('.order-detail-table tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if(cells.length >= 2) {
+            const k = cells[0].textContent.trim();
+            const v = cells[1].textContent.trim();
+            if(k && v && !tags[k]) tags[k] = v.split('\n')[0];
+        }
+    });
+  });
+
   Object.assign(tags, eoc원문);
 
   if (eoc원문.eta1_str) {
@@ -279,9 +270,6 @@ function parseEOCPage(doc) {
     const [h, m] = eoc원문.eta1_str.replace('분','').split('시 ');
     tags["_ETA1_시"] = parseInt(h); tags["_ETA1_분"] = parseInt(m);
   }
-
-  // [계산] 배달지연경과 (UI에서 활용)
-  // tags에 필요한 값들이 다 들어감
 
   const salesPrice = tags["판매금액"] || 0;
   const productDiscount = tags["상품할인"] || 0;
@@ -297,7 +285,7 @@ function parseEOCPage(doc) {
 }
 
 // ============================================================================
-// [Zendesk] UI 및 태그 치환 엔진
+// [Zendesk] UI 및 태그 치환 엔진 (수정됨)
 // ============================================================================
 if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [] }, lastPath = location.pathname;
@@ -308,45 +296,63 @@ if (isZD) {
 
   function initUI() {
     const panel = document.createElement('div');
-    panel.id = 'zd-helper-panel'; panel.className = 'hover-mode';
-    // 헤더: 핀 버튼 제거
+    panel.id = 'zd-helper-panel';
+    // [CSS 수정] Flex 레이아웃 적용 및 패널 초기 스타일 지정
+    Object.assign(panel.style, {
+        position: 'fixed', top: '10px', right: '10px', width: '300px',
+        backgroundColor: '#fff', border: '1px solid #ccc',
+        boxShadow: '0 2px 10px rgba(0,0,0,0.2)', zIndex: '9999',
+        display: 'flex', flexDirection: 'column',
+        maxHeight: '90vh' // 화면 넘어감 방지
+    });
+
     panel.innerHTML = `
-      <div class="header" title="클릭: 접기/펼치기, 드래그: 이동">
-        <span id="timer-display" style="font-weight:bold; color:blue; min-width:35px;">00:00</span>
-        <span id="info-header">연동 대기 중...</span>
-        <div><button id="home-btn" title="처음으로">🏠</button><button id="stealth-btn" title="숨김">👻</button></div>
+      <div class="header" style="padding:8px; background:#f1f1f1; border-bottom:1px solid #ddd; cursor:pointer; display:flex; justify-content:space-between; align-items:center;" title="클릭: 접기/펼치기 | 드래그: 이동">
+        <div>
+            <span id="timer-display" style="font-weight:bold; color:blue; margin-right:8px;">00:00</span>
+            <span id="info-header" style="font-size:11px;">연동 대기 중...</span>
+        </div>
+        <button id="home-btn" title="처음으로" style="font-size:12px; cursor:pointer;">🏠</button>
       </div>
-      <div id="content-area">
-        <div id="eoc-detail-view" class="tab-view stealth"></div>
-        <div id="calculator-view" class="tab-view stealth">
-            <div style="padding: 8px; font-size: 10px;">
-            <h4 style="margin-bottom: 8px;">🧮 안분가 계산기</h4>
-            <div id="calc-ratio-box" style="background: #f8f9fa; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 8px;">
-                <div style="color:#666; font-size:9px;">데이터 대기 중...</div>
+      
+      <div id="panel-content" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+        
+        <div id="content-scroll-area" style="flex:1; overflow-y:auto; padding-bottom:8px;">
+            <div id="eoc-detail-view" class="tab-view"></div>
+            
+            <div id="calculator-view" class="tab-view" style="display:none;">
+                <div style="padding: 8px; font-size: 10px;">
+                <h4 style="margin-bottom: 8px;">🧮 안분가 계산기</h4>
+                <div id="calc-ratio-box" style="background: #f8f9fa; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 8px;">
+                    <div style="color:#666; font-size:9px;">데이터 대기 중...</div>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <label style="display: block; margin-bottom: 3px; font-size: 9px; color: #666;">보상금액 입력</label>
+                    <input id="calc-input" type="number" placeholder="예: 5000" style="width: 100%; padding: 6px; border: 1px solid #ccc; font-size: 11px; border-radius: 3px;">
+                </div>
+                <button id="calc-btn" style="width: 100%; padding: 8px; background: #32a1ce; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">계산하기</button>
+                <div id="calc-result" style="margin-top: 10px; padding: 8px; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 3px; font-weight: bold; text-align: center; display: none; font-size: 12px;"></div>
+                </div>
             </div>
-            <div style="margin-bottom: 8px;">
-                <label style="display: block; margin-bottom: 3px; font-size: 9px; color: #666;">보상금액 입력</label>
-                <input id="calc-input" type="number" placeholder="예: 5000" style="width: 100%; padding: 6px; border: 1px solid #ccc; font-size: 11px; border-radius: 3px;">
+
+            <div id="settings-view" class="tab-view" style="display:none; padding:8px;">
+                <input id="set-name" type="text" placeholder="상담사 이름" style="width:100%; margin-bottom:5px;">
+                <textarea id="quick-buttons" style="width:100%; height:60px; margin-bottom:5px;" placeholder="퀵 버튼 JSON"></textarea>
+                <button id="save-settings" style="width:100%; background:#32a1ce; color:white; padding:5px;">저장</button>
             </div>
-            <button id="calc-btn" style="width: 100%; padding: 8px; background: #32a1ce; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">계산하기</button>
-            <div id="calc-result" style="margin-top: 10px; padding: 8px; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 3px; font-weight: bold; text-align: center; display: none; font-size: 12px;"></div>
-            </div>
+
+            <div id="btn-container"></div>
+            <div id="anbunga-container"></div>
+            <div id="quick-btn-container"></div>
         </div>
-        <div id="settings-view" class="tab-view stealth">
-            <input id="set-name" type="text" placeholder="상담사 이름" style="width:100%;">
-            <textarea id="quick-buttons" style="width:100%; height:60px; margin-top:5px;" placeholder="퀵 버튼 JSON"></textarea>
-            <button id="save-settings" style="width:100%; margin-top:5px; background:#32a1ce; color:white;">저장</button>
-        </div>
-        <div id="btn-container"></div>
-        <div id="anbunga-container"></div>
-        <div id="quick-btn-container"></div>
-        <div class="footer">
+
+        <div class="footer" style="padding:8px; border-top:1px solid #eee; background:#fff; display:flex; justify-content:space-around; flex-shrink:0;">
             <button id="toggle-detail">EOC 정보</button>
             <button id="toggle-calculator">🧮</button>
             <button id="toggle-settings">⚙️ 설정</button>
         </div>
       </div>
-      <div id="resize-handle"></div>
+      <div id="resize-handle" style="height:10px; cursor:nwse-resize; position:absolute; bottom:0; right:0; width:10px;"></div>
     `;
     document.body.appendChild(panel);
 
@@ -356,9 +362,9 @@ if (isZD) {
     document.addEventListener('mousemove', (e) => { if (!isResizing) return; panel.style.width = Math.max(200, Math.min(800, startWidth - (e.clientX - startX))) + 'px'; panel.style.height = Math.max(200, Math.min(window.innerHeight - 100, startHeight + (e.clientY - startY))) + 'px'; });
     document.addEventListener('mouseup', () => { isResizing = false; });
 
-    // 헤더 드래그 & 클릭 토글 로직
+    // 헤더 드래그 & 클릭 토글
     const header = panel.querySelector('.header');
-    const contentArea = document.getElementById('content-area');
+    const contentPanel = document.getElementById('panel-content');
     let isDragging = false; let dragStartX, dragStartY, panelStartX, panelStartY;
     let isClick = true;
 
@@ -367,7 +373,7 @@ if (isZD) {
       isDragging = true; isClick = true;
       dragStartX = e.clientX; dragStartY = e.clientY; 
       const rect = panel.getBoundingClientRect(); panelStartX = rect.left; panelStartY = rect.top; 
-      header.style.cursor = 'grabbing'; e.preventDefault(); 
+      e.preventDefault(); 
     });
     
     document.addEventListener('mousemove', (e) => { 
@@ -380,26 +386,33 @@ if (isZD) {
     
     document.addEventListener('mouseup', (e) => { 
       if (isDragging) {
-        isDragging = false; header.style.cursor = 'move';
-        // 클릭 시 접기/펼치기
+        isDragging = false;
         if (isClick && !e.target.closest('button')) {
-           if (contentArea.style.display === 'none') {
-             contentArea.style.display = 'block';
+           // 토글 로직
+           if (contentPanel.style.display === 'none') {
+             contentPanel.style.display = 'flex';
              panel.style.height = panel.dataset.prevHeight || 'auto';
            } else {
              panel.dataset.prevHeight = getComputedStyle(panel).height;
-             contentArea.style.display = 'none';
-             panel.style.height = 'auto'; // 헤더만 남김
+             contentPanel.style.display = 'none';
+             panel.style.height = 'auto';
            }
         }
       }
     });
 
     document.getElementById('home-btn').onclick = () => { if(ticketStore[getTid()]) { ticketStore[getTid()].scenario = null; ticketStore[getTid()].tree = []; refreshUI(); }};
-    document.getElementById('stealth-btn').onclick = () => panel.classList.toggle('stealth');
-    document.getElementById('toggle-detail').onclick = () => { document.getElementById('settings-view').classList.add('stealth'); document.getElementById('calculator-view').classList.add('stealth'); document.getElementById('eoc-detail-view').classList.toggle('stealth'); };
-    document.getElementById('toggle-calculator').onclick = () => { document.getElementById('eoc-detail-view').classList.add('stealth'); document.getElementById('settings-view').classList.add('stealth'); document.getElementById('calculator-view').classList.toggle('stealth'); };
-    document.getElementById('toggle-settings').onclick = () => { document.getElementById('eoc-detail-view').classList.add('stealth'); document.getElementById('calculator-view').classList.add('stealth'); document.getElementById('settings-view').classList.toggle('stealth'); };
+    
+    // 탭 전환 로직 수정 (stealth 클래스 대신 display 속성 제어)
+    const views = ['eoc-detail-view', 'calculator-view', 'settings-view'];
+    function switchView(targetId) {
+        views.forEach(id => {
+            document.getElementById(id).style.display = (id === targetId) ? 'block' : 'none';
+        });
+    }
+    document.getElementById('toggle-detail').onclick = () => switchView('eoc-detail-view');
+    document.getElementById('toggle-calculator').onclick = () => switchView('calculator-view');
+    document.getElementById('toggle-settings').onclick = () => switchView('settings-view');
 
     document.getElementById('calc-btn').onclick = () => {
       const eoc = ticketStore[getTid()]?.eoc?.eoc원문;
@@ -420,7 +433,6 @@ if (isZD) {
       chrome.storage.local.set({userSettings}); alert("저장됨"); renderQuickButtons(); refreshUI();
     };
 
-    // [핵심] UI 갱신 (와이어프레임 100% 반영)
     window.refreshUI = () => {
       const tid = getTid(); if (!tid) return;
       if (!ticketStore[tid]) ticketStore[tid] = { scenario: null, tree: [], eoc: {} };
@@ -440,7 +452,6 @@ if (isZD) {
         const pickupTime = eoc["픽업시각"] || "-";
         const completeTime = eoc["배달완료시각"] || "-";
 
-        // 배달 지연 계산
         let delayInfo = "-";
         let delayColor = "#666";
         if (eoc["_ETA1_시"] !== undefined && eoc["_ETA1_분"] !== undefined) {
@@ -460,7 +471,6 @@ if (isZD) {
             }
         }
 
-        // 메뉴 HTML (클릭 복사)
         let menuHtml = '';
         if (o.주문메뉴) {
             menuHtml = o.주문메뉴.split('\n').filter(l=>l.trim()).map(line => 
@@ -519,7 +529,6 @@ if (isZD) {
           };
       }
 
-      // 계산기 비율 업데이트
       const calcBox = document.getElementById('calc-ratio-box');
       if (calcBox) {
         if (eoc.eoc원문 && eoc.eoc원문.판매가격) {
@@ -581,7 +590,6 @@ if (isZD) {
       }
     };
 
-    // [헬퍼] 행 생성기 (간격 좁힘, flex-start)
     function makeRow(label, value) {
         if(!value) value = ""; 
         const safeVal = String(value).replace(/'/g, "\\'");

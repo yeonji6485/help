@@ -28,7 +28,6 @@ function findValueInTable(card, labelText) {
   const rows = card.querySelectorAll('.order-detail-table tr');
   for (const row of rows) {
     const cells = row.querySelectorAll('td');
-    // 라벨 텍스트 완전 일치 확인
     if (cells.length >= 2 && cells[0].textContent.trim() === labelText) {
       return cells[1].textContent.trim();
     }
@@ -54,210 +53,192 @@ function getRelativeDate(dateStr) {
 }
 
 /**
- * [핵심] EOC 페이지 파싱 - 엑셀 명세 100% 반영 버전
+ * [핵심] EOC 페이지 파싱 (엑셀 명세 반영)
  */
 function parseEOCPage(doc) {
-  const eoc원문 = {}; 
+  const eoc원문 = {};
   const tags = {};
-
-  // --------------------------------------------------------
-  // 1. 주문정보 (Card Header: '주문정보')
-  // --------------------------------------------------------
+  
+  // 1. 주문정보
   const orderInfoCard = findCardByHeader(doc, '주문정보');
   if (orderInfoCard) {
-    // 1) 배달유형
     const orderType = findValueInTable(orderInfoCard, '주문 유형');
-    eoc원문.배달유형 = (orderType && orderType.includes('세이브 배달')) ? '무료배달' : '한집배달';
+    if (orderType) eoc원문.배달유형 = orderType.includes('세이브 배달') ? '무료배달' : '한집배달';
     
-    // 2) 기본 ID들
     eoc원문.축약형주문번호 = (findValueInTable(orderInfoCard, '축약형 주문 ID') || '').split('\n')[0].trim();
     eoc원문.고유주문번호 = (findValueInTable(orderInfoCard, '고유 주문 ID') || '').split('\n')[0].trim();
     eoc원문.스토어id = (findValueInTable(orderInfoCard, '스토어 ID') || '').split('\n')[0].trim();
     eoc원문.회원번호 = (findValueInTable(orderInfoCard, '회원 번호') || '').split('\n')[0].trim();
     eoc원문.상태 = findValueInTable(orderInfoCard, '상태');
     
-    // 3) 조리 시간 (엑셀 컬럼명 준수)
+    // [추가] 조리 시간 관련
     eoc원문.예상조리소요시간 = findValueInTable(orderInfoCard, 'Merchant Input (Excludes merchant delay)');
     eoc원문.조리지연 = findValueInTable(orderInfoCard, 'Merchant Delay');
 
-    // 4) ETA 정보
+    // ETA 1
     const eta1 = findValueInTable(orderInfoCard, 'ETA 1');
     if (eta1) {
-      const m = eta1.match(/최초시간\s+(\d{2}):(\d{2})/);
-      if (m) {
-        eoc원문.eta1_int = parseInt(m[1]) * 60 + parseInt(m[2]);
-        eoc원문.eta1_str = `${m[1]}시 ${m[2]}분`;
+      const timeMatch = eta1.match(/최초시간\s+(\d{2}):(\d{2})/);
+      if (timeMatch) {
+        eoc원문.eta1_int = parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]);
+        eoc원문.eta1_str = `${timeMatch[1]}시 ${timeMatch[2]}분`;
       }
     }
-
+    
+    // ETA 3 (픽업 후 갱신)
     const eta3 = findValueInTable(orderInfoCard, 'ETA 3');
     if (eta3) {
-      // 최초시간 제외하고 업데이트 된 내역만
       const times = [...eta3.matchAll(/(\d{2}):(\d{2})/g)];
+      // 첫 번째는 최초시간이므로 제외하고 갱신된 시간들만
       const updateTimes = [];
       for (let i = 1; i < times.length; i++) {
         updateTimes.push(`${times[i][1]}:${times[i][2]}`);
       }
       eoc원문.픽업후갱신 = updateTimes.join(', ');
     }
-
-    // 5) 결제 금액 & 판매가격 (중요)
+    
+    // 결제금액 및 판매가격
     const payment = findValueInTable(orderInfoCard, '결제 금액');
     if (payment) {
-      const pMatch = payment.match(/₩([\d,]+)/);
-      if (pMatch) eoc원문.결제금액 = parseInt(pMatch[1].replace(/,/g, ''));
+      const paymentMatch = payment.match(/₩([\d,]+)/);
+      if (paymentMatch) eoc원문.결제금액 = parseInt(paymentMatch[1].replace(/,/g, ''));
       
-      const sMatch = payment.match(/판매가격:\s*₩([\d,]+)/);
-      if (sMatch) eoc원문.판매가격 = parseInt(sMatch[1].replace(/,/g, ''));
+      const salePriceMatch = payment.match(/판매가격:\s*₩([\d,]+)/);
+      if (salePriceMatch) eoc원문.판매가격 = parseInt(salePriceMatch[1].replace(/,/g, ''));
     }
-
-    // 6) 기타
+    
     const createTime = findValueInTable(orderInfoCard, '생성시간');
     if (createTime) eoc원문.결제시각 = getRelativeDate(createTime);
-    
     eoc원문.스토어요청사항 = findValueInTable(orderInfoCard, '비고') || '';
   }
-
-  // --------------------------------------------------------
-  // 2. 주문 메뉴 (Card Header: '주문 메뉴')
-  // --------------------------------------------------------
+  
+  // 2. 주문메뉴
   const menuCard = findCardByHeader(doc, '주문 메뉴');
   if (menuCard) {
     const menuTable = menuCard.querySelector('.el-table__body');
     if (menuTable) {
       const menuRows = menuTable.querySelectorAll('.el-table__row');
-      const menuList = [];
-      const menuItemsLegacy = [];
-
+      const menuItems = [];
+      
       menuRows.forEach(row => {
         const cells = row.querySelectorAll('.el-table__cell');
         if (cells.length >= 3) {
           const menuText = cells[2].textContent.trim();
-          
-          // [eoc원문용] 텍스트 서식화 (옵션 들여쓰기)
           const lines = menuText.split('\n').filter(l => l.trim());
-          let formatted = '';
+          let formattedMenu = '';
           lines.forEach(line => {
             line = line.trim();
-            if (line.startsWith('옵션:')) formatted += '  ' + line + '\n';
-            else formatted += line + '\n';
+            if (line) {
+              if (line.startsWith('옵션:')) formattedMenu += '  ' + line + '\n';
+              else formattedMenu += line + '\n';
+            }
           });
-          menuList.push(formatted.trim());
-
-          // [tags용] 하위 호환성 객체
-          menuItemsLegacy.push({
-            menuId: cells[0].textContent.trim(),
-            price: cells[1].textContent.trim(),
-            details: cells[2].textContent.trim()
-          });
+          menuItems.push(formattedMenu.trim());
         }
       });
-      eoc원문.주문메뉴 = menuList.join('\n\n');
-      tags["_주문메뉴_목록"] = menuItemsLegacy;
+      eoc원문.주문메뉴 = menuItems.join('\n\n');
+      
+      // 하위 호환성 (tags._주문메뉴_목록)
+      tags["_주문메뉴_목록"] = Array.from(menuRows).map(row => {
+          const cells = row.querySelectorAll('.el-table__cell');
+          return cells.length >= 3 ? {
+              menuId: cells[0].textContent.trim(),
+              price: cells[1].textContent.trim(),
+              details: cells[2].textContent.trim()
+          } : null;
+      }).filter(Boolean);
     }
   }
-
-  // --------------------------------------------------------
-  // 3. 결제 (Card Header: '결제') - 쿠폰/할인 정보
-  // --------------------------------------------------------
+  
+  // 3. 결제 (쿠폰)
   const paymentCard = findCardByHeader(doc, '결제');
   if (paymentCard) {
-    let disc = 0;
-    let delivDisc = 0;
+    let 할인금액합계 = 0;
+    let 배달비할인 = 0;
     
-    const h4s = paymentCard.querySelectorAll('h4');
-    let couponHeader = null;
-    h4s.forEach(h => { if(h.textContent.includes('쿠폰')) couponHeader = h; });
-
-    if (couponHeader) {
-      let nextEl = couponHeader.nextElementSibling;
-      while (nextEl && !nextEl.classList.contains('el-table')) nextEl = nextEl.nextElementSibling;
-      
-      if (nextEl) {
-        const rows = nextEl.querySelectorAll('.el-table__row');
-        rows.forEach(row => {
-          const cells = row.querySelectorAll('.el-table__cell');
-          if (cells.length >= 3) {
-            const type = cells[1].textContent.trim();
-            const price = extractNumber(cells[2].textContent);
-            
-            if (type.includes('상품 할인') || type.includes('디쉬 할인')) {
-              disc += price;
-            } else if (type.includes('배달비')) {
-              delivDisc += price;
-            }
+    const headers = paymentCard.querySelectorAll('h4');
+    for (const header of headers) {
+      if (header.textContent.includes('쿠폰')) {
+        let nextEl = header.nextElementSibling;
+        while (nextEl && !nextEl.classList.contains('el-table')) {
+          nextEl = nextEl.nextElementSibling;
+        }
+        
+        if (nextEl && nextEl.classList.contains('el-table')) {
+          const tbody = nextEl.querySelector('.el-table__body');
+          if (tbody) {
+            const rows = tbody.querySelectorAll('.el-table__row');
+            rows.forEach(row => {
+              const cells = row.querySelectorAll('.el-table__cell');
+              if (cells.length >= 3) {
+                const 할인유형 = cells[1].textContent.trim();
+                const 가격 = extractNumber(cells[2].textContent.trim());
+                
+                if (할인유형.includes('상품 할인') || 할인유형.includes('디쉬 할인')) {
+                  할인금액합계 += 가격;
+                } else if (할인유형.includes('배달비')) {
+                  배달비할인 = 가격;
+                }
+              }
+            });
           }
-        });
+        }
+        break;
       }
     }
-    eoc원문.할인금액 = disc;
-    eoc원문.배달비 = delivDisc;
-    tags["상품할인"] = disc; // 하위 호환
+    eoc원문.할인금액 = 할인금액합계;
+    eoc원문.배달비 = 배달비할인;
+    tags["상품할인"] = 할인금액합계; // 하위 호환
   }
-
-  // --------------------------------------------------------
-  // 4. 배달지 (Card Header: '배달지')
-  // --------------------------------------------------------
+  
+  // 4. 배달지
   const deliveryCard = findCardByHeader(doc, '배달지');
   if (deliveryCard) {
-    // *중요* 고객 전화번호
     eoc원문.고객전화 = (findValueInTable(deliveryCard, '전화번호') || '').split('\n')[0].trim();
     
-    // 주소 조합
-    const road = findValueInTable(deliveryCard, '도로명 주소');
-    const place = findValueInTable(deliveryCard, '지명');
-    const detail = findValueInTable(deliveryCard, '상세 주소');
+    const roadAddr = findValueInTable(deliveryCard, '도로명 주소');
+    const placeName = findValueInTable(deliveryCard, '지명');
+    const detailAddr = findValueInTable(deliveryCard, '상세 주소');
     
-    const addrParts = [];
-    if (road) {
-        addrParts.push(road);
-        if (place && place !== road) addrParts.push(place);
-    } else if (place) {
-        addrParts.push(place);
+    const addressParts = [];
+    if (roadAddr) {
+      addressParts.push(roadAddr);
+      if (placeName && placeName !== roadAddr) addressParts.push(placeName);
+    } else if (placeName) {
+      addressParts.push(placeName);
     }
-    if (detail) addrParts.push(detail);
-    
-    eoc원문.배달지 = addrParts.join(', ');
+    if (detailAddr) addressParts.push(detailAddr);
+    eoc원문.배달지 = addressParts.join(', ');
     tags["통합주소"] = eoc원문.배달지; // 하위 호환
-
-    // 요청사항 조합
-    const req = findValueInTable(deliveryCard, '선택된 배송요청사항');
-    const memo = findValueInTable(deliveryCard, '비고');
-    const tip = findValueInTable(deliveryCard, '배달팁');
-    const reqList = [req, memo, tip].filter(v => v && v.trim());
-    eoc원문.배달요청사항_비고_배달팁 = reqList.join(' / ');
+    
+    const deliveryReq = findValueInTable(deliveryCard, '선택된 배송요청사항') || '';
+    const deliveryMemo = findValueInTable(deliveryCard, '비고') || '';
+    const deliveryTip = findValueInTable(deliveryCard, '배달팁') || '';
+    const reqParts = [deliveryReq, deliveryMemo, deliveryTip].filter(p => p && p.trim());
+    eoc원문.배달요청사항_비고_배달팁 = reqParts.join(' / ');
   }
-
-  // --------------------------------------------------------
-  // 5. 스토어 (Card Header: '스토어')
-  // --------------------------------------------------------
+  
+  // 5. 스토어
   const storeCard = findCardByHeader(doc, '스토어');
   if (storeCard) {
     eoc원문.머천트id = (findValueInTable(storeCard, '머천트 ID') || '').split('\n')[0].trim();
     eoc원문.스토어명 = (findValueInTable(storeCard, '이름') || '').split('\n')[0].trim();
-    // *중요* 스토어 전화번호
-    eoc원문.스토어번호 = (findValueInTable(storeCard, '전화번호') || '').split('\n')[0].trim();
+    eoc원문.스토어번호 = (findValueInTable(storeCard, '전화번호') || '').split('\n')[0].trim(); // [분리]
     eoc원문.영업상태 = findValueInTable(storeCard, '영업 상태');
-    
-    const pos = findValueInTable(storeCard, 'POS 타입');
-    if (pos) eoc원문.포스타입 = pos.toUpperCase().includes('COUPANG_POS') ? '쿠팡포스' : '쿠팡포스외';
+    const posType = findValueInTable(storeCard, 'POS 타입');
+    if (posType) eoc원문.포스타입 = posType.toUpperCase().includes('COUPANG_POS') ? '쿠팡포스' : '쿠팡포스외';
   }
-
-  // --------------------------------------------------------
-  // 6. 쿠리어 (Card Header: '쿠리어')
-  // --------------------------------------------------------
+  
+  // 6. 쿠리어
   const courierCard = findCardByHeader(doc, '쿠리어');
   if (courierCard) {
     eoc원문.배달파트너id = (findValueInTable(courierCard, '쿠리어 ID') || '').split('\n')[0].trim();
-    // *중요* 배달파트너 전화번호
-    eoc원문.배달파트너전화 = (findValueInTable(courierCard, '전화번호') || '').split('\n')[0].trim();
+    eoc원문.배달파트너전화 = (findValueInTable(courierCard, '전화번호') || '').split('\n')[0].trim(); // [분리]
     eoc원문.배달유형_쿠리어 = findValueInTable(courierCard, '배달 유형');
     eoc원문.배달파트너타입 = findValueInTable(courierCard, '쿠리어 타입');
   }
-
-  // --------------------------------------------------------
-  // 7. 이슈 내용 (Card Header: '이슈 내용')
-  // --------------------------------------------------------
+  
+  // 7. 이슈내용
   const issueCard = findCardByHeader(doc, '이슈 내용');
   if (issueCard) {
     const inquiryTime = findValueInTable(issueCard, '문의한 시간');
@@ -266,10 +247,8 @@ function parseEOCPage(doc) {
     eoc원문.요청해결책 = findValueInTable(issueCard, '원하는 해결책');
     eoc원문.작성내용 = findValueInTable(issueCard, '작성내용');
   }
-
-  // --------------------------------------------------------
-  // 8. 이력 (Card Header: '이력') - 배달완료 시각 추출용
-  // --------------------------------------------------------
+  
+  // 8. 이력 (배달완료 시각)
   const historyCard = findCardByHeader(doc, '이력');
   if (historyCard) {
     const historyTable = historyCard.querySelector('.el-table__body');
@@ -280,28 +259,28 @@ function parseEOCPage(doc) {
       historyRows.forEach(row => {
         const cells = row.querySelectorAll('.el-table__cell');
         if (cells.length >= 6) {
-          const status = cells[2].textContent.trim(); // 조치
-          const createdText = cells[5].textContent.trim(); // 생성(ID)
-          const timeMatch = createdText.match(/(\d{2}):(\d{2}):(\d{2})/);
+          const 상태 = cells[2].textContent.trim();
+          const 생성ID = cells[5].textContent.trim();
+          const timeMatch = 생성ID.match(/(\d{2}):(\d{2}):(\d{2})/);
           
-          if (timeMatch && status) {
-            const h = parseInt(timeMatch[1]);
-            const m = parseInt(timeMatch[2]);
+          if (timeMatch && 상태) {
+            const hour = parseInt(timeMatch[1]);
+            const min = parseInt(timeMatch[2]);
             
-            // 배달완료 시각 잡기
-            if (status === '배달 완료') {
-              const fullMatch = createdText.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-              if (fullMatch) {
-                tags["배달완료시각"] = `${fullMatch[4]}시 ${fullMatch[5]}분`;
-                tags["_배달완료_시"] = fullMatch[4];
-                tags["_배달완료_분"] = fullMatch[5];
-              }
+            // 배달 완료 시각 추출
+            if (상태 === '배달 완료') {
+                const fullMatch = 생성ID.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+                if(fullMatch) {
+                    tags["배달완료시각"] = `${fullMatch[4]}시 ${fullMatch[5]}분`;
+                    tags["_배달완료_시"] = fullMatch[4];
+                    tags["_배달완료_분"] = fullMatch[5];
+                }
             }
-            
+
             historyItems.push({
-              상태: status,
-              시각_int: h * 60 + m,
-              시각_str: `${h}시 ${m}분`
+              상태: 상태,
+              시각_int: hour * 60 + min,
+              시각_str: `${hour}시 ${min}분`
             });
           }
         }
@@ -309,48 +288,41 @@ function parseEOCPage(doc) {
       eoc원문.이력 = historyItems;
     }
   }
-
-  // --------------------------------------------------------
-  // 9. 최종 데이터 병합 및 계산
-  // --------------------------------------------------------
   
-  // 안전장치: eoc원문 외에 혹시 놓친 테이블 값들도 tags에 다 때려박기
+  // [보완] 기존 로직 (안전장치 - 모든 테이블 값 저장)
   doc.querySelectorAll('.order-detail-card').forEach(card => {
-    card.querySelectorAll('.order-detail-table tr').forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if(cells.length >= 2) {
-            const k = cells[0].textContent.trim();
-            const v = cells[1].textContent.trim();
-            if(k && v && !tags[k]) tags[k] = v.split('\n')[0];
-        }
-    });
+      card.querySelectorAll('.order-detail-table tr').forEach(row => {
+          const cells = row.querySelectorAll('td');
+          if(cells.length >= 2) {
+              const k = cells[0].textContent.trim();
+              const v = cells[1].textContent.trim();
+              if(k && v && !tags[k]) tags[k] = v.split('\n')[0];
+          }
+      });
   });
 
+  // [병합 및 계산]
   Object.assign(tags, eoc원문);
 
-  // [계산] ETA1
   if (eoc원문.eta1_str) {
     tags["ETA1_시각"] = eoc원문.eta1_str;
     const [h, m] = eoc원문.eta1_str.replace('분','').split('시 ');
-    tags["_ETA1_시"] = parseInt(h); 
-    tags["_ETA1_분"] = parseInt(m);
+    tags["_ETA1_시"] = parseInt(h); tags["_ETA1_분"] = parseInt(m);
   }
 
-  // [계산] 배달시간차이
   if (tags["_ETA1_시"] && tags["_배달완료_시"]) {
     const eta1Mins = tags["_ETA1_시"] * 60 + tags["_ETA1_분"];
-    const delivMins = parseInt(tags["_배달완료_시"]) * 60 + parseInt(tags["_배달완료_분"]);
-    const diff = delivMins - eta1Mins;
-    tags["배달시간차이"] = diff > 0 ? `+${diff}분` : `${diff}분`;
+    const deliveryMinutes = parseInt(tags["_배달완료_시"]) * 60 + parseInt(tags["_배달완료_분"]);
+    const diffMinutes = deliveryMinutes - eta1Mins;
+    tags["배달시간차이"] = diffMinutes > 0 ? `+${diffMinutes}분` : `${diffMinutes}분`;
   }
 
-  // [계산] 안분가 비율
-  const salesPrice = eoc원문.판매가격 || 0;
-  const productDiscount = eoc원문.할인금액 || 0;
+  const salesPrice = tags["판매금액"] || 0;
+  const productDiscount = tags["상품할인"] || 0;
   if (salesPrice > 0) {
     const ratio = ((salesPrice - productDiscount) / salesPrice * 100).toFixed(2);
     tags["_안분가"] = `${ratio}%`;
-    tags["_판매금액_숫자"] = salesPrice; 
+    tags["_판매금액_숫자"] = salesPrice;
     tags["_상품할인_숫자"] = productDiscount;
   }
   
@@ -358,8 +330,17 @@ function parseEOCPage(doc) {
   return tags;
 }
 
+function isTimePassed(t) {
+  if(!t || !t.includes(':')) return false;
+  const now = new Date();
+  const [h, m] = t.split(':').map(Number);
+  const target = new Date(); 
+  target.setHours(h, m, 0);
+  return now > target;
+}
+
 // ============================================================================
-// [Zendesk] UI 및 태그 치환 엔진 (계산기 기능 포함 완성본)
+// [Zendesk] UI 및 태그 치환 엔진
 // ============================================================================
 if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [] }, lastPath = location.pathname;
@@ -444,46 +425,87 @@ if (isZD) {
       chrome.storage.local.set({userSettings}); alert("저장됨"); renderQuickButtons(); refreshUI();
     };
 
-    window.refreshUI = () => {
+    // [UI 디자인 수정] 와이어프레임 100% 반영 및 클릭 복사 적용
+    window.refreshUI = function() {
       const tid = getTid(); if (!tid) return;
       if (!ticketStore[tid]) ticketStore[tid] = { scenario: null, tree: [], eoc: {} };
       const data = ticketStore[tid], eoc = data.eoc || {};
 
+      // 헤더 업데이트
       if (eoc["고유주문번호"]) {
         document.getElementById('info-header').innerText = `*${eoc["고유주문번호"].slice(-4)} | ${eoc["축약형주문번호"] || ""} | ${eoc["스토어명"] || ""}`;
       }
 
+      // EOC 뷰 업데이트
       const eocView = document.getElementById('eoc-detail-view');
+      
+      // [1] 데이터 없음
       if (!data.eoc || Object.keys(data.eoc).length === 0) {
         eocView.innerHTML = '<div style="padding:4px; font-size:9px;">EOC 데이터 없음</div>';
-      } else {
+      } 
+      // [2] 데이터 있음 (디자인 적용)
+      else {
         const o = eoc.eoc원문 || {};
+        
+        // 전화번호 하이픈 제거
         const storePhone = (o.스토어번호 || "").replace(/-/g, "");
         const courierPhone = (o.배달파트너전화 || "").replace(/-/g, "");
-        const custPhone = (o.고객전화 || "").replace(/-/g, "");
+        
+        // 메뉴 리스트 HTML 생성 (각 줄마다 복사 가능하게)
+        let menuHtml = '';
+        if (o.주문메뉴) {
+            menuHtml = o.주문메뉴.split('\n').filter(line => line.trim()).map(line => 
+                `<div class="copyable-row" style="cursor:pointer; padding:1px 0;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="클릭하여 복사">
+                   ${line}
+                 </div>`
+            ).join('');
+        }
 
         eocView.innerHTML = `
-          <div style="padding:2px; font-size:9px;">
-            <div style="border:1px solid #ddd; padding:2px; margin-bottom:2px;">
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${o.배달유형}')"><strong>유형</strong> | ${o.배달유형}</div>
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${o.고유주문번호}')"><strong>고유</strong> | ${o.고유주문번호}</div>
+          <div style="padding: 0; font-size: 10px; border: 1px solid #ccc; background: #fff;">
+            <button id="toggle-raw-eoc" style="width:100%; border:none; border-bottom:1px solid #ccc; background:#f0f0f0; padding:4px; cursor:pointer; text-align:left; font-weight:bold;">
+              [EOC 원문 보기 ▼]
+            </button>
+            <div id="raw-eoc-data" style="display:none; max-height:200px; overflow-y:auto; background:#f9f9f9; border-bottom:1px solid #ccc; padding:4px;">
+                <pre style="white-space:pre-wrap; font-size:8px;">${JSON.stringify(o, null, 2)}</pre>
             </div>
-            <div style="border:1px solid #ddd; padding:2px; margin-bottom:2px;">
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${o.스토어명 ? o.스토어명.replace(/'/g, "\\'") : ""}')"><strong>매장</strong> | ${o.스토어명}</div>
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${storePhone}')"><strong>매장폰</strong> | ${storePhone}</div>
+
+            <div style="padding: 6px; border-bottom: 1px solid #ccc;">
+               ${makeRow("주문유형", o.배달유형)}
+               ${makeRow("고유번호", o.고유주문번호)}
+               ${makeRow("매장명", o.스토어명)}
+               ${makeRow("전화번호", storePhone)}
+               ${makeRow("결제시각", o.결제시각)}
+               ${makeRow("축약번호", o.축약형주문번호)}
             </div>
-            <div style="border:1px solid #ddd; padding:2px; margin-bottom:2px;">
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${courierPhone}')"><strong>기사폰</strong> | ${courierPhone}</div>
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${custPhone}')"><strong>고객폰</strong> | ${custPhone}</div>
+
+            <div style="padding: 6px; border-bottom: 1px solid #ccc;">
+               <div style="font-weight:bold; margin-bottom:4px;">주문 메뉴</div>
+               <div style="color:#444; line-height:1.4;">
+                 ${menuHtml || '정보 없음'}
+               </div>
             </div>
-            <div style="border:1px solid #ddd; padding:2px;">
-               <div class="copyable-row" onclick="navigator.clipboard.writeText('${o.결제시각}')"><strong>결제</strong> | ${o.결제시각}</div>
-               <div style="margin-top:2px; border-top:1px dashed #ccc;"><strong>메뉴</strong>: ${o.주문메뉴}</div>
-               <div style="margin-top:2px;"><strong>판매가</strong>: ₩${(o.판매가격||0).toLocaleString()} | <strong>할인</strong>: ₩${(o.할인금액||0).toLocaleString()}</div>
+
+            <div style="padding: 6px; border-bottom: 1px solid #ccc;">
+               ${makeRow("판매가격", o.판매가격 ? `₩${o.판매가격.toLocaleString()}` : "")}
+               ${makeRow("상품할인", o.할인금액 ? `₩${o.할인금액.toLocaleString()}` : "₩0")}
+            </div>
+
+            <div style="padding: 6px;">
+               ${makeRow("파트너유형", o.배달파트너타입)}
+               ${makeRow("파트너ID", o.배달파트너id)}
+               ${makeRow("파트너전화", courierPhone)}
             </div>
           </div>`;
+          
+          // 토글 기능 바인딩
+          document.getElementById('toggle-raw-eoc').onclick = function() {
+            const el = document.getElementById('raw-eoc-data');
+            el.style.display = el.style.display === 'none' ? 'block' : 'none';
+          };
       }
 
+      // [3] 계산기 (비율 자동 갱신)
       const calcBox = document.getElementById('calc-ratio-box');
       if (calcBox) {
         if (eoc.eoc원문 && eoc.eoc원문.판매가격) {
@@ -503,6 +525,7 @@ if (isZD) {
         }
       }
 
+      // 버튼 트리 렌더링
       const btnBox = document.getElementById('btn-container'); btnBox.innerHTML = '';
       if (!data.scenario) {
         Object.keys(utteranceData).forEach(cat => {
@@ -544,6 +567,19 @@ if (isZD) {
          anbungaBox.innerHTML = '';
       }
     };
+
+    // 헬퍼: 행 생성기 (클릭 시 복사 기능 내장)
+    function makeRow(label, value) {
+        if(!value) value = ""; 
+        // 텍스트 내 따옴표 이스케이프 처리
+        const safeVal = String(value).replace(/'/g, "\\'");
+        return `
+        <div style="display:flex; justify-content:space-between; margin-bottom:2px; cursor:pointer;" 
+             onclick="navigator.clipboard.writeText('${safeVal}')" title="클릭하여 복사">
+            <span style="color:#666; font-weight:bold; min-width:60px;">${label}</span>
+            <span style="color:#000; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;"> | ${value}</span>
+        </div>`;
+    }
 
     window.tagEngine = (text, data, settings) => {
       let res = text || "";

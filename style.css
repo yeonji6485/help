@@ -112,20 +112,6 @@
     background: #4caf50;
 }
 
-/* SMS 버튼 스타일 */
-.btn-sms {
-    background: #ff9800;
-    color: white;
-    cursor: pointer;
-    border-radius: 2px;
-    border: none;
-    text-align: center;
-    transition: all 0.1s;
-}
-.btn-sms:hover {
-    background: #f57c00 !important;
-}
-
 /* 탭 뷰 */
 .tab-view { 
     position: absolute; top: 26px; left: 0; 
@@ -133,18 +119,6 @@
     background: canvas; 
     z-index: 100; 
     border: 1px solid #32a1ce; overflow-y: auto; 
-}
-
-/* EOC 정보 탭 - 복사 가능한 행 */
-.copyable-row {
-    padding: 2px 4px;
-    cursor: pointer;
-    border-radius: 2px;
-    transition: background 0.1s;
-}
-
-.copyable-row:hover {
-    background: #f0f0f0;
 }
 
 /* Footer */
@@ -172,45 +146,31 @@
     overflow: hidden; border: none; 
 }
 
+/* 복사 가능한 행 스타일 */
+.copyable-row {
+    padding: 1px 2px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+}
+
+.copyable-row:hover {
+    background: #f0f0f0;
+}
+
 /* 설정 탭 내부 요소 */
 #settings-view label {
     display: block; margin-bottom: 2px; font-weight: bold;
 }
-#settings-view input,
-#settings-view textarea {
+#settings-view input {
     padding: 2px 4px; 
-    border: 1px solid #ccc; 
+    border: 1px solid; 
     border-radius: 2px;
     background: Field;
     color: FieldText;
-    font-size: 9px;
 }
 #settings-view button {
-    cursor: pointer; 
-    border-radius: 2px; 
-    border: none;
+    cursor: pointer; border-radius: 2px; border: none;
     padding: 4px;
-}
-
-/* 설정 탭 - 퀵 입력 필드 */
-.quick-input {
-    width: 100%;
-    margin: 2px 0;
-    padding: 2px 4px;
-    font-size: 9px;
-    border: 1px solid #ccc;
-    border-radius: 2px;
-}
-
-/* 설정 탭 - SMS 입력 필드 */
-.sms-label,
-.sms-text {
-    width: 100%;
-    margin: 2px 0;
-    padding: 2px 4px;
-    font-size: 9px;
-    border: 1px solid #ccc;
-    border-radius: 2px;
 }
 
 /* 크기 조절 핸들 */

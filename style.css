@@ -18,6 +18,11 @@
     border-bottom: 1px solid; 
     height: 26px; 
     padding: 0 4px !important; 
+    cursor: move;
+    user-select: none;
+}
+.header:active {
+    cursor: grabbing;
 }
 #info-header { 
     flex: 1; text-align: center; font-weight: bold; 
@@ -186,4 +191,93 @@
 }
 #resize-handle:hover {
     background: linear-gradient(135deg, transparent 0%, transparent 50%, #32a1ce 50%, #32a1ce 100%);
+}
+
+/* 안분가 컨테이너 */
+#anbunga-container {
+    font-size: 10px;
+    background: #f0f0f0;
+    border-top: 1px solid #ccc;
+    padding: 4px;
+}
+
+/* EOC 상세보기 탭 */
+#eoc-detail-view {
+    padding: 4px;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+/* 계산기 탭 */
+#calculator-view {
+    padding: 8px;
+}
+
+#calc-input {
+    width: 100%;
+    padding: 4px;
+    margin-bottom: 4px;
+    border: 1px solid;
+    border-radius: 2px;
+    background: Field;
+    color: FieldText;
+    font-size: 11px;
+}
+
+#calc-btn {
+    width: 100%;
+    padding: 6px;
+    cursor: pointer;
+    border-radius: 2px;
+    border: none;
+    background: #1e88e5;
+    color: white;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+#calc-btn:hover {
+    background: #1565c0;
+}
+
+#calc-result {
+    margin-top: 8px;
+    padding: 8px;
+    background: #e3f2fd;
+    border-radius: 2px;
+    text-align: center;
+    font-weight: bold;
+    display: none;
+    font-size: 12px;
+}
+
+/* 설정 탭 추가 요소 */
+#set-name {
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+#quick-buttons {
+    width: 100%;
+    min-height: 100px;
+    font-family: monospace;
+    padding: 4px;
+    margin-bottom: 8px;
+}
+
+#save-settings {
+    width: 100%;
+    padding: 6px;
+    background: #66bb6a;
+    color: white;
+    font-weight: bold;
+}
+
+#save-settings:hover {
+    background: #4caf50;
+}
+
+/* 복사 가능 행 클릭 피드백 */
+.copyable-row:active {
+    background: #e0e0e0;
 }

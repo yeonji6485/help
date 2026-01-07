@@ -540,8 +540,11 @@ if (isZD) {
         renderGroupButtons('quick-btn-container', userSettings.quickButtons);
         renderGroupButtons('sms-container', userSettings.smsTemplates);
     }
-
+let lastRendered = "";
     window.refreshUI = () => {
+      const currentDump = JSON.stringify(ticketStore[getTid()] || {});
+      if (currentDump === lastRendered) return;
+      lastRendered = currentDump;
       const tid = getTid(); if (!tid) return;
       if (!ticketStore[tid]) ticketStore[tid] = { scenario: null, tree: [], eoc: {} };
       const data = ticketStore[tid], eoc = data.eoc || {};

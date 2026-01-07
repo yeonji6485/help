@@ -528,7 +528,7 @@ if (isZD) {
         let menuHtml = '';
         if (o.주문메뉴) {
             menuHtml = o.주문메뉴.split('\n').filter(l=>l.trim()).map(line => 
-                `<div style="cursor:pointer; padding:4px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:keep-all; word-wrap:break-word; white-space: pre-wrap; line-height:1.4;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">${line}</div>`
+                `<div style="cursor:pointer; padding:4px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:keep-all; word-wrap:break-word; white-space: pre-wrap; line-height:1.1;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">${line}</div>`
             ).join('');
         }
 

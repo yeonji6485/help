@@ -184,12 +184,9 @@ function parseEOCPage(doc) {
     let cType = null;
     const typeRow = Array.from(courierCard.querySelectorAll('.order-detail-table tr')).find(r => r.textContent.includes('쿠리어 타입'));
     if (typeRow) {
-        const checkedRadio = typeRow.querySelector('input[type="radio"]:checked');
-        if (checkedRadio) cType = checkedRadio.parentElement.textContent.trim();
-        else {
-            const valCell = typeRow.querySelectorAll('td')[1];
-            if(valCell) cType = valCell.textContent.trim();
-        }
+        // [수정됨] HTML 구조에 맞춰 'is-checked' 클래스가 있는 라디오 버튼의 텍스트 추출
+        const checkedRadio = typeRow.querySelector('.el-radio.is-checked');
+        if (checkedRadio) cType = checkedRadio.textContent.trim();
     }
     eoc원문.배달파트너타입 = cType || '';
   }
@@ -540,11 +537,16 @@ if (isZD) {
         renderGroupButtons('quick-btn-container', userSettings.quickButtons);
         renderGroupButtons('sms-container', userSettings.smsTemplates);
     }
-let lastRendered = "";
+
+    // [최적화] 이전 렌더링 데이터 저장 변수 (initUI 안에 위치해야 함)
+    let lastRendered = "";
+
     window.refreshUI = () => {
+      // [최적화] 데이터 변경 없으면 리렌더링 방지
       const currentDump = JSON.stringify(ticketStore[getTid()] || {});
       if (currentDump === lastRendered) return;
       lastRendered = currentDump;
+
       const tid = getTid(); if (!tid) return;
       if (!ticketStore[tid]) ticketStore[tid] = { scenario: null, tree: [], eoc: {} };
       const data = ticketStore[tid], eoc = data.eoc || {};
@@ -562,30 +564,42 @@ let lastRendered = "";
         const courierPhone = (o.배달파트너전화 || "").replace(/-/g, "");
         const pickupTime = eoc["픽업시각"] || "-";
         const completeTime = eoc["배달완료시각"] || "-";
+        const eta1Time = eoc["ETA1_시각"] || "-";
 
+        // [수정됨] 지연 시간 계산 로직 (ETA1 기준)
         let delayInfo = "-";
         let delayColor = "#666666";
+        
         if (eoc["_ETA1_시"] !== undefined && eoc["_ETA1_분"] !== undefined) {
             const etaMinutes = eoc["_ETA1_시"] * 60 + eoc["_ETA1_분"];
             let currentMinutes = 0;
+            let label = "";
+            
             if (eoc["_배달완료_시"]) {
+                // 배달 완료된 경우: 완료시간 - ETA1
                 currentMinutes = parseInt(eoc["_배달완료_시"]) * 60 + parseInt(eoc["_배달완료_분"]);
-                const diff = currentMinutes - etaMinutes;
-                delayInfo = `${diff > 0 ? "+" : ""}${diff}분 (완료)`;
-                delayColor = diff > 0 ? "#d32f2f" : "#1976d2";
+                label = "완료";
             } else {
+                // 배달 중인 경우: 현재시간 - ETA1
                 const now = new Date();
                 currentMinutes = now.getHours() * 60 + now.getMinutes();
-                const diff = currentMinutes - etaMinutes;
-                delayInfo = `${diff > 0 ? "+" : ""}${diff}분 (진행중)`;
-                delayColor = diff > 0 ? "#d32f2f" : "#388e3c";
+                label = "현재";
             }
+            
+            const diff = currentMinutes - etaMinutes;
+            const diffStr = diff > 0 ? `+${diff}분` : `${diff}분`;
+            delayInfo = `${diffStr} (${label} 기준)`;
+            
+            // 0분 초과면 빨간색, 아니면 초록색/파란색
+            if (label === "현재") delayColor = diff > 0 ? "#d32f2f" : "#388e3c"; // 진행중: 지연(적) / 정상(녹)
+            else delayColor = diff > 0 ? "#d32f2f" : "#1976d2"; // 완료됨: 지연(적) / 정상(청)
         }
 
         let menuHtml = '';
         if (o.주문메뉴) {
             menuHtml = o.주문메뉴.split('\n').filter(l=>l.trim()).map(line => 
-                `<div style="cursor:pointer; padding:2px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">
+                // [수정됨] 메뉴 폭 제한 해제 (width:100%, white-space:normal)
+                `<div style="cursor:pointer; padding:2px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:break-all; white-space: normal; line-height:1.4;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">
                    ${line}
                  </div>`
             ).join('');
@@ -610,12 +624,12 @@ let lastRendered = "";
             </div>
 
             <div style="padding: 8px; border-bottom: 1px solid #eeeeee; background-color:#ffffff;">
-               <div style="margin-bottom:4px; color:#333333;">주문 메뉴</div>
-               <div style="color:#555555; line-height:1.4;">${menuHtml || '<span style="color:#999999;">정보 없음</span>'}</div>
+               <div style="margin-bottom:4px; color:#333333; font-weight:bold;">주문 메뉴</div>
+               <div style="color:#555555;">${menuHtml || '<span style="color:#999999;">정보 없음</span>'}</div>
             </div>
 
             <div style="padding: 8px; border-bottom: 1px solid #eeeeee; background-color:#ffffff;">
-               ${makeRow("판매가격", o.판매가격 ? `₩${o.판매가격.toLocaleString()}` : "")}
+               ${makeRow("결제금액", o.결제금액 ? `₩${o.결제금액.toLocaleString()}` : "")} ${makeRow("판매가격", o.판매가격 ? `₩${o.판매가격.toLocaleString()}` : "")}
                ${makeRow("상품할인", o.할인금액 ? `₩${o.할인금액.toLocaleString()}` : "₩0")}
             </div>
 
@@ -623,13 +637,16 @@ let lastRendered = "";
                ${makeRow("파트너유형", o.배달파트너타입)}
                ${makeRow("파트너ID", o.배달파트너id)}
                ${makeRow("파트너전화", courierPhone)}
+               
                <div style="margin-top:6px; padding-top:6px; border-top:1px dashed #dddddd;">
+                 ${makeRow("ETA 1", eta1Time)}
+                 <div style="display:flex; justify-content:flex-start; margin-bottom:4px;">
+                    <span style="color:#666666; min-width:70px;">지연차이</span>
+                    <span style="color:${delayColor}; font-weight:bold;">| ${delayInfo}</span>
+                 </div>
+                 
                  ${makeRow("픽업시각", pickupTime)}
                  ${makeRow("완료시각", completeTime)}
-                 <div style="display:flex; justify-content:flex-start; margin-bottom:2px;">
-                    <span style="color:#666666; min-width:70px;">지연경과</span>
-                    <span style="color:${delayColor};">| ${delayInfo}</span>
-                 </div>
                </div>
             </div>
           </div>`;
@@ -639,7 +656,8 @@ let lastRendered = "";
             el.style.display = el.style.display === 'none' ? 'block' : 'none';
           };
       }
-
+      
+      // ... (이하 기존 안분가 계산기 및 버튼 렌더링 코드는 그대로 유지) ...
       const calcBox = document.getElementById('calc-ratio-box');
       if (calcBox) {
         if (eoc.eoc원문 && eoc.eoc원문.판매가격) {
@@ -699,9 +717,9 @@ let lastRendered = "";
 
       const anbungaBox = document.getElementById('anbunga-container');
       if(eoc["_안분가"]) {
-         anbungaBox.innerHTML = `<div style="padding:8px; font-size:11px; background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; margin: 8px; text-align:center; color:#000000;">안분가(비율): ${eoc["_안분가"]}</div>`;
+          anbungaBox.innerHTML = `<div style="padding:8px; font-size:11px; background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; margin: 8px; text-align:center; color:#000000;">안분가(비율): ${eoc["_안분가"]}</div>`;
       } else {
-         anbungaBox.innerHTML = '';
+          anbungaBox.innerHTML = '';
       }
     };
 

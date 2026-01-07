@@ -599,7 +599,7 @@ if (isZD) {
         if (o.주문메뉴) {
             menuHtml = o.주문메뉴.split('\n').filter(l=>l.trim()).map(line => 
                 // [수정됨] 메뉴 폭 제한 해제 (width:100%, white-space:normal)
-                `<div style="cursor:pointer; padding:2px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:break-all; white-space: normal; line-height:1.4;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">
+                `<div style="cursor:pointer; padding:2px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:keep-all; white-space: normal; line-height:1.4;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">
                    ${line}
                  </div>`
             ).join('');

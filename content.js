@@ -283,7 +283,7 @@ function parseEOCPage(doc) {
 // [Zendesk] UI 및 태그 치환 엔진
 // ============================================================================
 // ============================================================================
-// [Zendesk] UI 및 태그 치환 엔진 (완전판)
+// [Zendesk] UI 및 태그 치환 엔진 (EOC 원문 개선판)
 // ============================================================================
 if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [], smsTemplates: [] }, lastPath = location.pathname;
@@ -528,15 +528,35 @@ if (isZD) {
         let menuHtml = '';
         if (o.주문메뉴) {
             menuHtml = o.주문메뉴.split('\n').filter(l=>l.trim()).map(line => 
-                `<div style="cursor:pointer; padding:4px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:keep-all; word-wrap:break-word; white-space: pre-wrap; line-height:1.1;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">${line}</div>`
+                `<div style="cursor:pointer; padding:4px 0; border-bottom:1px dashed #eeeeee; color:#000000; background-color:#ffffff; width:100%; word-break:keep-all; word-wrap:break-word; white-space: pre-wrap; line-height:1.0;" onclick="navigator.clipboard.writeText('${line.replace(/'/g, "\\'")}')" title="복사">${line}</div>`
             ).join('');
         }
+        
+        // [변경] 원문 데이터 와이어프레임 렌더링
+        let rawHtml = '';
+        const rawKeys = Object.keys(o).sort();
+        rawHtml = rawKeys.map(k => {
+             let val = o[k];
+             if (typeof val === 'object' && val !== null) val = JSON.stringify(val);
+             if (val === undefined || val === null) val = "";
+             const safeVal = String(val).replace(/'/g, "\\'");
+             const safeKey = `{{${k}}}`;
+             return `
+             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #eee; padding:4px 0; font-size:10px;">
+                <span style="color:#0052cc; cursor:pointer; font-family:monospace; min-width:110px; flex-shrink:0;" 
+                      onclick="event.stopPropagation(); navigator.clipboard.writeText('${safeKey}');" 
+                      title="변수명 복사: ${safeKey}">${safeKey}</span>
+                <span style="color:#333; cursor:pointer; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;" 
+                      onclick="event.stopPropagation(); navigator.clipboard.writeText('${safeVal}');" 
+                      title="값 복사: ${safeVal}">${val}</span>
+             </div>`;
+        }).join('');
 
         eocView.innerHTML = `
           <div style="font-size: 11px; background: #ffffff; color:#000000;">
             <button id="toggle-raw-eoc" style="width:100%; border:none; border-bottom:1px solid #dddddd; background:#f1f1f1; padding:6px; cursor:pointer; text-align:left; color:#333333;">[EOC 원문 보기 ▼]</button>
-            <div id="raw-eoc-data" style="display:none; max-height:200px; overflow-y:auto; background:#fafafa; border-bottom:1px solid #dddddd; padding:6px;">
-                <pre style="white-space:pre-wrap; font-size:10px; margin:0; color:#555555;">${JSON.stringify(o, null, 2)}</pre>
+            <div id="raw-eoc-data" style="display:none; max-height:250px; overflow-y:auto; background:#fafafa; border-bottom:1px solid #dddddd; padding:6px;">
+                ${rawHtml}
             </div>
             <div style="padding:8px; border-bottom:1px solid #eeeeee;">${makeRow("주문유형", o.배달유형)}${makeRow("고유번호", o.고유주문번호)}${makeRow("매장명", o.스토어명)}${makeRow("전화번호", storePhone)}${makeRow("결제시각", o.결제시각)}${makeRow("축약번호", o.축약형주문번호)}</div>
             <div style="padding:8px; border-bottom:1px solid #eeeeee;"><div style="margin-bottom:4px; font-weight:bold;">주문 메뉴</div><div style="color:#555555;">${menuHtml || '정보 없음'}</div></div>
@@ -614,5 +634,4 @@ if (isZD) {
     refreshUI();
   }
 }
-function getTid() { return location.pathname.match(/tickets\/(\d+)/)?.[1] || 'test-env'; }
 function getTid() { return location.pathname.match(/tickets\/(\d+)/)?.[1] || 'test-env'; }

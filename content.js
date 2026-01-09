@@ -319,16 +319,16 @@ if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [], smsTemplates: [] }, lastPath = location.pathname;
   let lastRendered = "";
 
-  // [수정] UI 즉시 초기화 (파일 로드 대기 제거)
+  // [핵심 차이] UI를 먼저 강제로 띄웁니다. (파일 로딩 실패해도 패널은 보임)
   initUI();
 
   // 시나리오 데이터 비동기 로드
   fetch(chrome.runtime.getURL('data_generated.json'))
     .then(r => r.json())
     .then(data => { utteranceData = data.scenarios; refreshUI(); })
-    .catch(e => console.log("Scenario load failed:", e));
+    .catch(e => console.log("Scenario load failed:", e)); // 실패 시 로그 출력
 
-  // [수정] 저장된 설정 및 최신 EOC 데이터 복구 (새로고침 대응)
+  // [기능 추가] 저장된 설정 및 최신 EOC 데이터 복구 (새로고침 대응)
   chrome.storage.local.get(["userSettings", "transfer_buffer"], r => {
     if (r.userSettings) {
       userSettings = r.userSettings;
@@ -338,7 +338,7 @@ if (isZD) {
         nameInput.value = userSettings.name || "";
         document.getElementById('quick-buttons').value = JSON.stringify(userSettings.quickButtons || [], null, 2);
         document.getElementById('sms-templates').value = JSON.stringify(userSettings.smsTemplates || [], null, 2);
-        renderGroups(); // 그룹 버튼 렌더링
+        renderGroups(); 
       }
     }
     // 이전에 캡처된 데이터가 있다면 복구
@@ -349,8 +349,6 @@ if (isZD) {
       refreshUI();
     }
   });
-
- 
 
   function initUI() {
     const panel = document.createElement('div');

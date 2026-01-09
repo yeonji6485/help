@@ -313,18 +313,44 @@ if (eoc원문.머천트수락_int !== undefined) {
 }
 
 // ============================================================================
-// [Zendesk] UI 및 태그 치환 엔진
-// ============================================================================
-// ============================================================================
 // [Zendesk] UI 및 태그 치환 엔진 (완전판)
 // ============================================================================
 if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [], smsTemplates: [] }, lastPath = location.pathname;
   let lastRendered = "";
 
-  fetch(chrome.runtime.getURL('data_generated.json')).then(r => r.json()).then(data => { 
-    utteranceData = data.scenarios; initUI(); 
+  // [수정] UI 즉시 초기화 (파일 로드 대기 제거)
+  initUI();
+
+  // 시나리오 데이터 비동기 로드
+  fetch(chrome.runtime.getURL('data_generated.json'))
+    .then(r => r.json())
+    .then(data => { utteranceData = data.scenarios; refreshUI(); })
+    .catch(e => console.log("Scenario load failed:", e));
+
+  // [수정] 저장된 설정 및 최신 EOC 데이터 복구 (새로고침 대응)
+  chrome.storage.local.get(["userSettings", "transfer_buffer"], r => {
+    if (r.userSettings) {
+      userSettings = r.userSettings;
+      // 설정 탭 입력창에 값 복원
+      const nameInput = document.getElementById('set-name');
+      if (nameInput) {
+        nameInput.value = userSettings.name || "";
+        document.getElementById('quick-buttons').value = JSON.stringify(userSettings.quickButtons || [], null, 2);
+        document.getElementById('sms-templates').value = JSON.stringify(userSettings.smsTemplates || [], null, 2);
+        renderGroups(); // 그룹 버튼 렌더링
+      }
+    }
+    // 이전에 캡처된 데이터가 있다면 복구
+    if (r.transfer_buffer) {
+      const tid = getTid();
+      if (!ticketStore[tid]) ticketStore[tid] = { scenario: null, tree: [], eoc: {} };
+      ticketStore[tid].eoc = r.transfer_buffer;
+      refreshUI();
+    }
   });
+
+ 
 
   function initUI() {
     const panel = document.createElement('div');
@@ -647,5 +673,4 @@ if (isZD) {
     refreshUI();
   }
 }
-function getTid() { return location.pathname.match(/tickets\/(\d+)/)?.[1] || 'test-env'; }
 function getTid() { return location.pathname.match(/tickets\/(\d+)/)?.[1] || 'test-env'; }

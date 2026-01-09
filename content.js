@@ -91,8 +91,8 @@ function parseEOCPage(doc) {
         tags["_머천트수락_분"] = m;
       }
     }
-      }
-    }
+      
+    
 
     const eta3 = findValueInTable(orderInfoCard, 'ETA 3');
     if (eta3) {
@@ -298,7 +298,6 @@ if (eoc원문.머천트수락_int !== undefined) {
 }
 
 Object.assign(tags, eoc원문);
-  Object.assign(tags, eoc원문);
 
   if (eoc원문.eta1_str) {
     tags["ETA1_시각"] = eoc원문.eta1_str;

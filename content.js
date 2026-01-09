@@ -2,7 +2,7 @@ const isEOC = location.host.includes('coupang.net');
 const isZD = location.host.includes('zendesk.com') || location.host.includes('google.com');
 
 // ============================================================================
-// [EOC] 데이터 수집 (버전 9와 동일)
+// [EOC] 데이터 수집
 // ============================================================================
 if (isEOC) {
   document.addEventListener('click', (e) => {
@@ -28,7 +28,8 @@ function findValueInTable(card, labelText) {
   const rows = card.querySelectorAll('.order-detail-table tr');
   for (const row of rows) {
     const cells = row.querySelectorAll('td');
-    if (cells.length >= 2 && cells[0].textContent.trim() === labelText) {
+    // "ETA 1" 처럼 텍스트가 포함된 경우를 찾기 위해 includes 사용 (엄격한 일치 대신)
+    if (cells.length >= 2 && cells[0].textContent.trim().includes(labelText)) {
       return cells[1].textContent.trim();
     }
   }
@@ -70,8 +71,23 @@ function parseEOCPage(doc) {
     eoc원문.예상조리소요시간 = findValueInTable(orderInfoCard, 'Merchant Input (Excludes merchant delay)');
     eoc원문.조리지연 = findValueInTable(orderInfoCard, 'Merchant Delay');
 
+    // [수정됨] ETA 1 (머천트 수락) 파싱 로직 추가
     const eta1 = findValueInTable(orderInfoCard, 'ETA 1');
     if (eta1) {
+      // 1. 맨 처음 기재된 시각 추출 (머천트 수락 시각)
+      const firstMatch = eta1.match(/(\d{2}):(\d{2})/);
+      if (firstMatch) {
+        const h = parseInt(firstMatch[1]);
+        const m = parseInt(firstMatch[2]);
+        
+        eoc원문.머천트수락_int = h * 60 + m; // 분 단위 변환
+        eoc원문.머천트수락_str = `${h}시 ${m}분`;
+        tags["머천트수락시각"] = eoc원문.머천트수락_str;
+        tags["_머천트수락_시"] = h;
+        tags["_머천트수락_분"] = m;
+      }
+      
+      // 2. 기존 로직 (최초시간 명시된 경우)
       const m = eta1.match(/최초시간\s+(\d{2}):(\d{2})/);
       if (m) {
         eoc원문.eta1_int = parseInt(m[1]) * 60 + parseInt(m[2]);
@@ -256,6 +272,33 @@ function parseEOCPage(doc) {
     });
   });
 
+  // [수정됨] 시간 차이(지연) 계산 로직 추가
+  // 머천트 수락 시각이 존재할 때만 계산 수행
+  if (eoc원문.머천트수락_int !== undefined) {
+    const merchantMin = eoc원문.머천트수락_int;
+    
+    // 1. 현재시각 - 머천트수락
+    const now = new Date();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+    const diffFromNow = currentMin - merchantMin;
+    
+    eoc원문.현재지연_int = diffFromNow;
+    eoc원문.현재지연_str = `${diffFromNow > 0 ? '+' : ''}${diffFromNow}분`;
+    tags["현재지연_분"] = diffFromNow;
+    tags["현재지연"] = eoc원문.현재지연_str;
+    
+    // 2. 배달완료시각 - 머천트수락 (배달완료된 경우만)
+    if (tags["_배달완료_시"] !== undefined) {
+      const completeMin = parseInt(tags["_배달완료_시"]) * 60 + parseInt(tags["_배달완료_분"]);
+      const diffComplete = completeMin - merchantMin;
+      
+      eoc원문.완료지연_int = diffComplete;
+      eoc원문.완료지연_str = `${diffComplete > 0 ? '+' : ''}${diffComplete}분`;
+      tags["완료지연_분"] = diffComplete;
+      tags["완료지연"] = eoc원문.완료지연_str;
+    }
+  }
+
   Object.assign(tags, eoc원문);
 
   if (eoc원문.eta1_str) {
@@ -284,7 +327,7 @@ if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [], smsTemplates: [] }, lastPath = location.pathname;
   let lastRendered = "";
 
-  // 1. 데이터(JSON)를 먼저 확실히 로드합니다. (버전 9와 동일한 순서)
+  // 1. 데이터(JSON)를 먼저 확실히 로드합니다.
   fetch(chrome.runtime.getURL('data_generated.json'))
     .then(r => r.json())
     .then(data => { 
@@ -604,8 +647,7 @@ if (isZD) {
       return res;
     };
     
-    // 3. [핵심] UI가 완전히 생성된 이후에 저장된 데이터를 복구합니다.
-    // 이 위치에 두면 '데이터 로드' -> 'UI 생성' -> '복구' 순서가 보장됩니다.
+    // 3. UI가 완전히 생성된 이후에 저장된 데이터를 복구합니다.
     chrome.storage.local.get(["userSettings", "transfer_buffer"], r => { 
         if(r.userSettings) { 
             userSettings = r.userSettings; 

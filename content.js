@@ -551,19 +551,26 @@ if (isZD) {
       } else {
         const storePhone = (o.스토어번호 || "").replace(/-/g, "");
         const courierPhone = (o.배달파트너전화 || "").replace(/-/g, "");
-        const eta1Time = eoc["ETA1_시각"] || "-";
-        
-        let delayInfo = "-", delayColor = "#666666";
-        if (eoc["_ETA1_시"] !== undefined) {
-            const etaMin = eoc["_ETA1_시"] * 60 + eoc["_ETA1_분"];
-            let curMin = 0, label = "";
-            if (eoc["_배달완료_시"]) { curMin = parseInt(eoc["_배달완료_시"]) * 60 + parseInt(eoc["_배달완료_분"]); label = "완료"; }
-            else { const now = new Date(); curMin = now.getHours() * 60 + now.getMinutes(); label = "현재"; }
-            const diff = curMin - etaMin;
-            delayInfo = `${diff > 0 ? `+${diff}분` : `${diff}분`} (${label} 기준)`;
-            if (label === "현재") delayColor = diff > 0 ? "#d32f2f" : "#388e3c";
-            else delayColor = diff > 0 ? "#d32f2f" : "#1976d2";
-        }
+       // 수정
+const eta1Time = eoc["머천트수락시각"] || eoc["ETA1_시각"] || "-";
+
+let delayInfo = "-", delayColor = "#666666";
+if (eoc["_머천트수락_시"] !== undefined) {
+    const etaMin = eoc["_머천트수락_시"] * 60 + eoc["_머천트수락_분"];
+    let curMin = 0, label = "";
+    if (eoc["_배달완료_시"]) { 
+        curMin = parseInt(eoc["_배달완료_시"]) * 60 + parseInt(eoc["_배달완료_분"]); 
+        label = "완료"; 
+    } else { 
+        const now = new Date(); 
+        curMin = now.getHours() * 60 + now.getMinutes(); 
+        label = "현재"; 
+    }
+    const diff = curMin - etaMin;
+    delayInfo = `${diff > 0 ? `+${diff}분` : `${diff}분`} (${label} 기준)`;
+    if (label === "현재") delayColor = diff > 0 ? "#d32f2f" : "#388e3c";
+    else delayColor = diff > 0 ? "#d32f2f" : "#1976d2";
+}
 
         let menuHtml = '';
         if (o.주문메뉴) {

@@ -70,12 +70,27 @@ function parseEOCPage(doc) {
     eoc원문.예상조리소요시간 = findValueInTable(orderInfoCard, 'Merchant Input (Excludes merchant delay)');
     eoc원문.조리지연 = findValueInTable(orderInfoCard, 'Merchant Delay');
 
-    const eta1 = findValueInTable(orderInfoCard, 'ETA 1');
-    if (eta1) {
-      const m = eta1.match(/최초시간\s+(\d{2}):(\d{2})/);
-      if (m) {
-        eoc원문.eta1_int = parseInt(m[1]) * 60 + parseInt(m[2]);
-        eoc원문.eta1_str = `${m[1]}시 ${m[2]}분`;
+    const merchantVal = findValueInTable(orderInfoCard, '(머천트 수락)');
+    if (merchantVal) {
+      // 앞에 '최초시간' 텍스트가 있든, 줄바꿈이 있든 상관없이 
+      // 가장 먼저 등장하는 '00:00' 형태의 시간만 가져옵니다.
+      const timeMatch = merchantVal.match(/(\d{2}):(\d{2})/);
+      
+      if (timeMatch) {
+        const h = parseInt(timeMatch[1]);
+        const m = parseInt(timeMatch[2]);
+        
+        // 지연 시간 계산을 위한 분 단위 값
+        eoc원문.머천트수락_int = h * 60 + m;
+        eoc원문.머천트수락_str = `${h}시 ${m}분`;
+        
+        // UI 표시 및 기존 호환성 유지
+        eoc원문.eta1_str = eoc원문.머천트수락_str;
+        tags["머천트수락시각"] = eoc원문.머천트수락_str;
+        tags["_머천트수락_시"] = h;
+        tags["_머천트수락_분"] = m;
+      }
+    }
       }
     }
 
@@ -257,7 +272,32 @@ function parseEOCPage(doc) {
         }
     });
   });
+  // 시간 차이 계산 - Object.assign(tags, eoc원문); 바로 윗줄에 추가 (268번째 줄 근처)
 
+// 👇 여기 추가
+if (eoc원문.머천트수락_int !== undefined) {
+  const merchantMin = eoc원문.머천트수락_int;
+  const now = new Date();
+  const currentMin = now.getHours() * 60 + now.getMinutes();
+  const diffFromNow = currentMin - merchantMin;
+  
+  eoc원문.현재지연_int = diffFromNow;
+  eoc원문.현재지연_str = `${diffFromNow > 0 ? '+' : ''}${diffFromNow}분`;
+  tags["현재지연_분"] = diffFromNow;
+  tags["현재지연"] = eoc원문.현재지연_str;
+  
+  if (tags["_배달완료_시"] !== undefined) {
+    const completeMin = parseInt(tags["_배달완료_시"]) * 60 + parseInt(tags["_배달완료_분"]);
+    const diffComplete = completeMin - merchantMin;
+    
+    eoc원문.완료지연_int = diffComplete;
+    eoc원문.완료지연_str = `${diffComplete > 0 ? '+' : ''}${diffComplete}분`;
+    tags["완료지연_분"] = diffComplete;
+    tags["완료지연"] = eoc원문.완료지연_str;
+  }
+}
+
+Object.assign(tags, eoc원문);
   Object.assign(tags, eoc원문);
 
   if (eoc원문.eta1_str) {

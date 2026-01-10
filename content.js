@@ -869,7 +869,7 @@ if (eoc["_머천트수락_시"] !== undefined) {
           Object.assign(b.style, {backgroundColor:'#ffffff', color:'#000000', border:'1px solid #dddddd', padding:'6px 12px', margin:'2px', cursor:'pointer', borderRadius:'3px'});
           b.onclick = () => { 
             data.tree.push({ ...opt, children: [] }); 
-            if (opt.type === 'copy' && opt.text) navigator.clipboard.writeText(tagEngine(opt.text, eoc, userSettings)); 
+            if (opt.type === 'text' && opt.text) navigator.clipboard.writeText(tagEngine(opt.text, eoc, userSettings)); 
             refreshUI(); 
           };
           btnBox.appendChild(b);

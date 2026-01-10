@@ -46,8 +46,15 @@
     align-content: flex-start;
 }
 
-/* 분기 마커 */
-.branch-marker { width: 100%; height: 2px; background: #32a1ce; opacity: 0.5; margin: 4px 0; flex-shrink: 0; }
+/* 분기 마커 - 작은 세로 바 */
+.branch-marker { 
+    width: 2px; 
+    height: 16px; 
+    background: #90caf9; 
+    margin: 4px 6px; 
+    flex-shrink: 0; 
+    align-self: flex-start;
+}
 
 /* 버튼 공통 스타일 */
 .action-btn { 

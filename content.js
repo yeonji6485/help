@@ -327,10 +327,148 @@ Object.assign(tags, eoc원문);
 if (isZD) {
   let ticketStore = {}, utteranceData = {}, userSettings = { name: "", quickButtons: [], smsTemplates: [] }, lastPath = location.pathname;
   let lastRendered = "";
+  let ticketHistory = {}; // 시간대별 티켓 히스토리 저장
 
   fetch(chrome.runtime.getURL('data_generated.json')).then(r => r.json()).then(data => { 
     utteranceData = data.scenarios; initUI(); 
   });
+
+  // 티켓 히스토리 로드
+  chrome.storage.local.get("ticketHistory", r => {
+    if (r.ticketHistory) ticketHistory = r.ticketHistory;
+  });
+
+  // 티켓 히스토리 저장
+  function saveTicketHistory() {
+    chrome.storage.local.set({ ticketHistory });
+  }
+
+  // 시간 구간 가져오기 (예: "14:00")
+  function getTimeSlot() {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:00`;
+  }
+
+  // 현재 티켓 ID를 히스토리에 추가
+  function addTicketToHistory(ticketId, storeName) {
+    const slot = getTimeSlot();
+    if (!ticketHistory[slot]) {
+      ticketHistory[slot] = [];
+    }
+    
+    // 중복 체크
+    const exists = ticketHistory[slot].find(t => t.ticketId === ticketId);
+    if (!exists) {
+      ticketHistory[slot].push({
+        ticketId,
+        storeName: storeName || '알 수 없음',
+        valid: true,
+        timestamp: Date.now()
+      });
+      saveTicketHistory();
+      updateTicketCounter();
+    }
+  }
+
+  // 티켓 유효성 토글
+  function toggleTicketValidity(slot, ticketId) {
+    if (ticketHistory[slot]) {
+      const ticket = ticketHistory[slot].find(t => t.ticketId === ticketId);
+      if (ticket) {
+        ticket.valid = !ticket.valid;
+        saveTicketHistory();
+        updateTicketCounter();
+      }
+    }
+  }
+
+  // 현재 시간 구간의 유효한 티켓 수 계산
+  function getCurrentSlotCount() {
+    const slot = getTimeSlot();
+    if (!ticketHistory[slot]) return 0;
+    return ticketHistory[slot].filter(t => t.valid).length;
+  }
+
+  // 이전 시간 구간들의 평균 계산
+  function getPreviousAverage() {
+    const currentSlot = getTimeSlot();
+    const slots = Object.keys(ticketHistory).filter(s => s < currentSlot);
+    if (slots.length === 0) return 0;
+    
+    const total = slots.reduce((sum, slot) => {
+      return sum + ticketHistory[slot].filter(t => t.valid).length;
+    }, 0);
+    
+    return (total / slots.length).toFixed(1);
+  }
+
+  // 티켓 카운터 업데이트
+  function updateTicketCounter() {
+    const display = document.getElementById('ticket-counter');
+    if (!display) return;
+    
+    const current = getCurrentSlotCount();
+    const avg = getPreviousAverage();
+    
+    display.innerHTML = `<span style="cursor: pointer;" title="클릭하여 유효성 토글">${current}</span> / <span style="color: #666;">${avg}</span>`;
+  }
+
+  // 통계 뷰 표시
+  function showStatistics() {
+    const statsView = document.getElementById('stats-view');
+    if (!statsView) return;
+    
+    statsView.innerHTML = '';
+    statsView.style.display = 'block';
+    
+    const slots = Object.keys(ticketHistory).sort().reverse();
+    
+    if (slots.length === 0) {
+      statsView.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">통계 데이터가 없습니다.</div>';
+      return;
+    }
+    
+    slots.forEach(slot => {
+      const tickets = ticketHistory[slot];
+      const validCount = tickets.filter(t => t.valid).length;
+      
+      const slotDiv = document.createElement('div');
+      slotDiv.style.cssText = 'margin-bottom: 12px; padding: 8px; background: #f5f5f5; border-radius: 4px;';
+      
+      const header = document.createElement('div');
+      header.style.cssText = 'font-weight: bold; margin-bottom: 4px; color: #333;';
+      header.textContent = `${slot} (${validCount}/${tickets.length})`;
+      slotDiv.appendChild(header);
+      
+      tickets.forEach(ticket => {
+        const ticketDiv = document.createElement('div');
+        ticketDiv.style.cssText = 'display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #e0e0e0;';
+        
+        const ticketIdSpan = document.createElement('span');
+        ticketIdSpan.textContent = ticket.ticketId;
+        ticketIdSpan.style.cssText = 'cursor: pointer; color: #1e88e5; flex: 0 0 80px;';
+        ticketIdSpan.title = '클릭하여 복사';
+        ticketIdSpan.onclick = () => {
+          navigator.clipboard.writeText(ticket.ticketId);
+        };
+        
+        const storeSpan = document.createElement('span');
+        storeSpan.textContent = ticket.storeName;
+        storeSpan.style.cssText = `cursor: pointer; flex: 1; color: ${ticket.valid ? '#333' : '#999'}; text-decoration: ${ticket.valid ? 'none' : 'line-through'};`;
+        storeSpan.title = '클릭하여 유효성 토글';
+        storeSpan.onclick = () => {
+          toggleTicketValidity(slot, ticket.ticketId);
+          showStatistics(); // 뷰 새로고침
+        };
+        
+        ticketDiv.appendChild(ticketIdSpan);
+        ticketDiv.appendChild(storeSpan);
+        slotDiv.appendChild(ticketDiv);
+      });
+      
+      statsView.appendChild(slotDiv);
+    });
+  }
 
   function initUI() {
     const panel = document.createElement('div');
@@ -347,28 +485,30 @@ if (isZD) {
 
     panel.innerHTML = `
       <div class="header" style="padding:10px; background:#f5f5f5; border-bottom:1px solid #ddd; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-radius: 4px 4px 0 0; color:#000000; flex-shrink: 0;">
-        <div>
-            <span id="timer-display" style="color:#0052cc; margin-right:8px; font-family: monospace;">00:00</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div id="ticket-counter" style="color:#0052cc; font-family: monospace; font-size: 12px; cursor: pointer;" title="클릭하여 현재 구간 티켓 무효화">0 / 0</div>
+            <button id="stats-btn" title="통계" style="border:none; background:none; cursor:pointer; font-size:14px; padding: 0;">📊</button>
             <span id="info-header" style="font-size:11px; color:#333333;">연동 대기 중...</span>
         </div>
         <div style="display:flex; gap:4px;">
             <button id="home-btn" title="처음으로" style="border:none; background:none; cursor:pointer; font-size:14px;">🏠</button>
+            <button id="settings-btn" title="설정" style="border:none; background:none; cursor:pointer; font-size:14px;">⚙️</button>
         </div>
       </div>
       
       <div id="panel-content" style="display:flex; flex-direction:column; flex:1; width: 100%; overflow:hidden; background-color: #ffffff;">
         <div id="content-scroll-area" style="flex:1; overflow-y:auto; padding:0;">
-            <div id="eoc-view" style="display:block;">
+            <div id="eoc-view" style="display:none;">
                 <div id="eoc-detail-view"></div>
                 <div id="anbunga-container"></div>
             </div>
             
-            <div id="script-view" style="display:none; flex-direction:column; height:100%;">
-                <div id="btn-container" style="padding:8px; border-bottom:1px solid #eee; overflow-y:auto; height: 200px; flex-shrink: 0;"></div>
-                <div id="divider" style="height:12px; background:#e0e0e0; cursor:ns-resize; flex-shrink:0; border-top:1px solid #ccc; border-bottom:1px solid #ccc; display:flex; justify-content:center; align-items:center;">
-                    <div style="width:20px; height:2px; background:#999; border-radius:1px;"></div>
+            <div id="script-view" style="display:flex; flex-direction:column; height:100%;">
+                <div id="btn-container" style="padding:8px; border-bottom:1px solid #eee; overflow-y:auto; flex: 1 1 200px; min-height: 100px;"></div>
+                <div id="divider" style="height:8px; background:#e0e0e0; cursor:ns-resize; flex-shrink:0; border-top:1px solid #ccc; border-bottom:1px solid #ccc; display:flex; justify-content:center; align-items:center;">
+                    <div style="width:30px; height:3px; background:#999; border-radius:2px;"></div>
                 </div>
-                <div id="quick-btn-container" style="padding:4px; overflow-y:auto; flex:1;"></div>
+                <div id="quick-btn-container" style="padding:4px; overflow-y:auto; flex: 1 1 150px; min-height: 80px;"></div>
             </div>
             
             <div id="calculator-view" style="display:none; padding:10px;">
@@ -397,14 +537,16 @@ if (isZD) {
                 <textarea id="sms-templates" style="width:100%; height:80px; padding:6px; margin-bottom:10px; border:1px solid #ddd; border-radius:4px; box-sizing: border-box; font-family:monospace; font-size:11px; background-color:#ffffff; color:#000000;"></textarea>
                 <button id="save-settings" style="width:100%; padding:8px; background: #0052cc; color: #ffffff; border: none; border-radius: 4px; cursor: pointer;">저장</button>
             </div>
+
+            <div id="stats-view" style="display:none; padding:10px; overflow-y: auto;">
+            </div>
         </div>
 
         <div class="footer" style="padding:0; display:flex; border-top:1px solid #ddd; background:#f9f9f9; height: 36px; flex-shrink: 0;">
-            <button id="toggle-eoc" class="footer-btn active" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#333333; border-right:1px solid #eee;">📋 EOC</button>
-            <button id="toggle-script" class="footer-btn" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#666666; border-right:1px solid #eee;">🎬 스크립트</button>
+            <button id="toggle-eoc" class="footer-btn" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#666666; border-right:1px solid #eee;">📋 EOC</button>
+            <button id="toggle-script" class="footer-btn active" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#0052cc; background:#f0f7ff; border-right:1px solid #eee;">🎬 스크립트</button>
             <button id="toggle-sms" class="footer-btn" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#666666; border-right:1px solid #eee;">💬 SMS</button>
-            <button id="toggle-calculator" class="footer-btn" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#666666; border-right:1px solid #eee;">🧮 계산기</button>
-            <button id="toggle-settings" class="footer-btn" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#666666;">⚙️ 설정</button>
+            <button id="toggle-calculator" class="footer-btn" style="flex:1; border:none; background:none; cursor:pointer; font-size:11px; color:#666666;">🧮 계산기</button>
         </div>
       </div>
       <div id="resize-handle" style="height:12px; cursor:nwse-resize; position:absolute; bottom:0; right:0; width:12px; z-index:10000;"></div>
@@ -414,20 +556,38 @@ if (isZD) {
     const scriptView = document.getElementById('script-view');
     const divider = document.getElementById('divider');
     const btnContainer = document.getElementById('btn-container');
+    const quickBtnContainer = document.getElementById('quick-btn-container');
     
-    let isDivDragging = false, divStartY, divStartHeight;
+    // Divider 드래그 기능 수정
+    let isDivDragging = false, divStartY, btnStartHeight, quickStartHeight;
     divider.addEventListener('mousedown', (e) => {
-        isDivDragging = true; divStartY = e.clientY; divStartHeight = btnContainer.offsetHeight;
-        document.body.style.cursor = 'ns-resize'; e.preventDefault();
+        isDivDragging = true; 
+        divStartY = e.clientY; 
+        btnStartHeight = btnContainer.offsetHeight;
+        quickStartHeight = quickBtnContainer.offsetHeight;
+        document.body.style.cursor = 'ns-resize'; 
+        e.preventDefault();
+        e.stopPropagation();
     });
     document.addEventListener('mousemove', (e) => {
         if (!isDivDragging) return;
         const deltaY = e.clientY - divStartY;
-        const newHeight = Math.max(50, Math.min(divStartHeight + deltaY, scriptView.offsetHeight - 100));
-        btnContainer.style.height = newHeight + 'px';
+        const totalHeight = scriptView.offsetHeight - divider.offsetHeight;
+        const newBtnHeight = Math.max(100, Math.min(btnStartHeight + deltaY, totalHeight - 80));
+        const newQuickHeight = totalHeight - newBtnHeight;
+        
+        btnContainer.style.flex = `1 1 ${newBtnHeight}px`;
+        btnContainer.style.minHeight = `${newBtnHeight}px`;
+        quickBtnContainer.style.flex = `1 1 ${newQuickHeight}px`;
+        quickBtnContainer.style.minHeight = `${newQuickHeight}px`;
         e.preventDefault();
     });
-    document.addEventListener('mouseup', () => { if (isDivDragging) { isDivDragging = false; document.body.style.cursor = 'default'; } });
+    document.addEventListener('mouseup', () => { 
+        if (isDivDragging) { 
+            isDivDragging = false; 
+            document.body.style.cursor = 'default'; 
+        } 
+    });
 
     const resizeHandle = document.getElementById('resize-handle');
     let isResizing = false, startX, startY, startWidth, startHeight2;
@@ -472,23 +632,96 @@ if (isZD) {
       }
     });
 
-    document.getElementById('home-btn').onclick = () => { if(ticketStore[getTid()]) { ticketStore[getTid()].scenario = null; ticketStore[getTid()].tree = []; refreshUI(); }};
+    document.getElementById('home-btn').onclick = () => { 
+      if(ticketStore[getTid()]) { 
+        ticketStore[getTid()].scenario = null; 
+        ticketStore[getTid()].tree = []; 
+        refreshUI(); 
+      }
+      switchView('script-view', 'toggle-script');
+    };
+    
+    // 통계 버튼
+    document.getElementById('stats-btn').onclick = (e) => {
+      e.stopPropagation();
+      showStatistics();
+      hideAllViews();
+      document.getElementById('stats-view').style.display = 'block';
+      document.querySelectorAll('.footer-btn').forEach(b => { 
+        b.style.color = '#666666'; 
+        b.style.backgroundColor = 'transparent'; 
+      });
+    };
+
+    // 설정 버튼
+    document.getElementById('settings-btn').onclick = (e) => {
+      e.stopPropagation();
+      hideAllViews();
+      document.getElementById('settings-view').style.display = 'block';
+      document.querySelectorAll('.footer-btn').forEach(b => { 
+        b.style.color = '#666666'; 
+        b.style.backgroundColor = 'transparent'; 
+      });
+    };
+
+    // 티켓 카운터 클릭 - 현재 구간 전체 무효화 토글
+    document.getElementById('ticket-counter').onclick = (e) => {
+      e.stopPropagation();
+      const slot = getTimeSlot();
+      if (ticketHistory[slot] && ticketHistory[slot].length > 0) {
+        const allValid = ticketHistory[slot].every(t => t.valid);
+        ticketHistory[slot].forEach(t => t.valid = !allValid);
+        saveTicketHistory();
+        updateTicketCounter();
+      }
+    };
+
+    // 통계 및 설정 뷰에서 빈 공간 클릭시 디폴트 화면으로
+    document.getElementById('stats-view').onclick = (e) => {
+      if (e.target.id === 'stats-view') {
+        switchView('script-view', 'toggle-script');
+      }
+    };
+
+    document.getElementById('settings-view').onclick = (e) => {
+      if (e.target.id === 'settings-view') {
+        switchView('script-view', 'toggle-script');
+      }
+    };
+
+    function hideAllViews() {
+      ['eoc-view', 'script-view', 'calculator-view', 'sms-view', 'settings-view', 'stats-view'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+      });
+    }
     
     function switchView(targetId, btnId) {
-        ['eoc-view', 'script-view', 'calculator-view', 'sms-view', 'settings-view'].forEach(id => {
-            const el = document.getElementById(id);
-            if (id === targetId) el.style.display = id === 'script-view' ? 'flex' : 'block';
-            else el.style.display = 'none';
+        hideAllViews();
+        const el = document.getElementById(targetId);
+        if (targetId === 'script-view') {
+          el.style.display = 'flex';
+        } else {
+          el.style.display = 'block';
+        }
+        
+        document.querySelectorAll('.footer-btn').forEach(b => { 
+          b.style.color = '#666666'; 
+          b.style.backgroundColor = 'transparent'; 
         });
-        document.querySelectorAll('.footer-btn').forEach(b => { b.style.color = '#666666'; b.style.backgroundColor = 'transparent'; });
-        const activeBtn = document.getElementById(btnId);
-        activeBtn.style.color = '#0052cc'; activeBtn.style.backgroundColor = '#f0f7ff';
+        
+        if (btnId) {
+          const activeBtn = document.getElementById(btnId);
+          if (activeBtn) {
+            activeBtn.style.color = '#0052cc'; 
+            activeBtn.style.backgroundColor = '#f0f7ff';
+          }
+        }
     }
+    
     document.getElementById('toggle-eoc').onclick = () => switchView('eoc-view', 'toggle-eoc');
     document.getElementById('toggle-script').onclick = () => switchView('script-view', 'toggle-script');
     document.getElementById('toggle-sms').onclick = () => switchView('sms-view', 'toggle-sms');
     document.getElementById('toggle-calculator').onclick = () => switchView('calculator-view', 'toggle-calculator');
-    document.getElementById('toggle-settings').onclick = () => switchView('settings-view', 'toggle-settings');
 
     document.getElementById('calc-btn').onclick = () => {
       const eoc = ticketStore[getTid()]?.eoc?.eoc원문;
@@ -541,6 +774,11 @@ if (isZD) {
       const tid = getTid(); if (!tid) return;
       if (!ticketStore[tid]) ticketStore[tid] = { scenario: null, tree: [], eoc: {} };
       const data = ticketStore[tid], eoc = data.eoc || {}, o = eoc.eoc원문 || {};
+
+      // 티켓 히스토리에 추가
+      if (eoc["고유주문번호"] && eoc["스토어명"]) {
+        addTicketToHistory(tid, eoc["스토어명"]);
+      }
 
       if (eoc["고유주문번호"]) document.getElementById('info-header').innerText = `*${eoc["고유주문번호"].slice(-4)} | ${eoc["축약형주문번호"] || ""} | ${eoc["스토어명"] || ""}`;
       const eocView = document.getElementById('eoc-detail-view');
@@ -618,11 +856,14 @@ if (eoc["_머천트수락_시"] !== undefined) {
            const b = document.createElement('button'); b.className = `action-btn btn-${n.type}`; b.innerText = n.label;
            Object.assign(b.style, {backgroundColor:'#e3f2fd', color:'#0052cc', border:'1px solid #90caf9', padding:'4px 8px', margin:'2px', cursor:'pointer', borderRadius:'3px'});
            b.onclick = () => { data.tree.splice(idx + 1); refreshUI(); }; btnBox.appendChild(b);
-           btnBox.appendChild(Object.assign(document.createElement('div'), {className:'branch-marker'}));
         });
+        if (data.tree.length > 0) {
+          const marker = document.createElement('div');
+          marker.className = 'branch-marker';
+          btnBox.appendChild(marker);
+        }
         const current = data.tree.length === 0 ? 'start' : data.tree[data.tree.length - 1].next;
         const options = utteranceData[data.scenario][current] || [];
-        if(options.length > 0) btnBox.appendChild(Object.assign(document.createElement('div'), {className:'branch-marker'}));
         options.forEach(opt => {
           const b = document.createElement('button'); b.className = `action-btn btn-${opt.type}`; b.innerText = opt.label; b.title = tagEngine(opt.text, eoc, userSettings);
           Object.assign(b.style, {backgroundColor:'#ffffff', color:'#000000', border:'1px solid #dddddd', padding:'6px 12px', margin:'2px', cursor:'pointer', borderRadius:'3px'});
@@ -637,6 +878,9 @@ if (eoc["_머천트수락_시"] !== undefined) {
       renderGroups();
       const anbungaBox = document.getElementById('anbunga-container');
       anbungaBox.innerHTML = eoc["_안분가"] ? `<div style="padding:8px; font-size:11px; background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; margin: 8px; text-align:center; color:#000000;">안분가(비율): ${eoc["_안분가"]}</div>` : '';
+      
+      // 티켓 카운터 업데이트
+      updateTicketCounter();
     };
 
     function makeRow(label, value) {
@@ -655,8 +899,16 @@ if (eoc["_머천트수락_시"] !== undefined) {
         if(r.userSettings) { userSettings = r.userSettings; document.getElementById('set-name').value = userSettings.name||""; document.getElementById('quick-buttons').value = JSON.stringify(userSettings.quickButtons||[], null, 2); document.getElementById('sms-templates').value = JSON.stringify(userSettings.smsTemplates||[], null, 2); renderGroups(); }
     });
     chrome.storage.onChanged.addListener(c => { if(c.transfer_buffer) { ticketStore[getTid()].eoc = c.transfer_buffer.newValue; refreshUI(); } });
-    setInterval(() => { if (location.pathname !== lastPath) { lastPath = location.pathname; refreshUI(); } }, 1000);
+    setInterval(() => { 
+      if (location.pathname !== lastPath) { 
+        lastPath = location.pathname; 
+        refreshUI(); 
+      }
+      updateTicketCounter(); // 1초마다 티켓 카운터도 업데이트
+    }, 1000);
     
+    // 초기화 시 스크립트 탭 활성화
+    switchView('script-view', 'toggle-script');
     refreshUI();
   }
 }
